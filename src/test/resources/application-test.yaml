@@ -1,0 +1,4 @@
+micronaut:
+  server:
+    # bind a random free port during tests
+    port: -1

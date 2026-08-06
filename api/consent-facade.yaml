@@ -1,0 +1,564 @@
+openapi: 3.0.3
+info:
+  title: Consent Facade API
+  description: |
+    API provided by the Consent Facade towards the [Prometheus-X / Visions
+    consent-manager](https://github.com/VisionsOfficial/consent-manager).
+
+    The consent-manager consumes a *contract service* (configured through its
+    `CONTRACT_SERVICE_BASE_URL`) to derive privacy notices and consents. This
+    facade implements that contract-service contract on top of the FIWARE
+    **TM Forum APIs**: a bilateral contract is projected from a TM Forum
+    `ProductOrder` (its `relatedParty` = the data consumer) for a
+    `ProductOffering`, and the catalog graph the contracts reference
+    (`serviceOffering` -> data-/software-resources, participant
+    self-descriptions) is served from the ordered `ProductSpecification`.
+
+    Identifiers used as `{participantId}`, `{providerId}` and `{consumerId}`
+    are the participants' self-description identifiers, base64-encoded, exactly
+    as the consent-manager passes them.
+  version: 0.0.1
+  contact:
+    name: Stefan Wiedemann
+    email: stefan.wiedemann@fiware.org
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+tags:
+  - name: contracts
+    description: Contract lookup endpoints consumed by the consent-manager.
+  - name: catalog
+    description: Catalog self-descriptions the contracts dereference (service offerings, data/software resources).
+  - name: participants
+    description: Participant self-descriptions used when building consent receipts.
+paths:
+  /bilaterals/for/{participantId}:
+    get:
+      tags:
+        - contracts
+      operationId: getBilateralContractsForParticipant
+      summary: Bilateral contracts a participant is party to.
+      description: Returns all bilateral contracts the given participant is involved in (as data provider or data consumer).
+      parameters:
+        - $ref: '#/components/parameters/ParticipantId'
+        - $ref: '#/components/parameters/HasSigned'
+      responses:
+        '200':
+          description: The matching bilateral contracts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BilateralContractList'
+  /bilaterals/{contractId}:
+    get:
+      tags:
+        - contracts
+      operationId: getBilateralContract
+      summary: A single bilateral contract by id.
+      parameters:
+        - $ref: '#/components/parameters/ContractId'
+      responses:
+        '200':
+          description: The bilateral contract.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BilateralContract'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /contracts/for/{participantId}:
+    get:
+      tags:
+        - contracts
+      operationId: getEcosystemContractsForParticipant
+      summary: Ecosystem contracts a participant is party to.
+      parameters:
+        - $ref: '#/components/parameters/ParticipantId'
+        - $ref: '#/components/parameters/HasSigned'
+      responses:
+        '200':
+          description: The matching ecosystem contracts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EcosystemContractList'
+  /contracts/{contractId}:
+    get:
+      tags:
+        - contracts
+      operationId: getEcosystemContract
+      summary: A single ecosystem contract by id.
+      parameters:
+        - $ref: '#/components/parameters/ContractId'
+      responses:
+        '200':
+          description: The ecosystem contract.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EcosystemContract'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /verify/{providerId}/{consumerId}:
+    get:
+      tags:
+        - contracts
+      operationId: verifyContract
+      summary: Verify that a signed contract exists between two participants.
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The verification result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResult'
+  /catalog/serviceofferings/{id}:
+    get:
+      tags:
+        - catalog
+      operationId: getServiceOffering
+      summary: Service-offering self-description referenced by a contract.
+      description: |
+        Dereferences a `serviceOffering` URL from a contract. A data offering
+        exposes `dataResources`, a purpose/software offering exposes
+        `softwareResources`.
+      parameters:
+        - $ref: '#/components/parameters/CatalogId'
+      responses:
+        '200':
+          description: The service-offering self-description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceOffering'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /catalog/dataresources/{id}:
+    get:
+      tags:
+        - catalog
+      operationId: getDataResource
+      summary: Data-resource self-description referenced by a service offering.
+      parameters:
+        - $ref: '#/components/parameters/CatalogId'
+      responses:
+        '200':
+          description: The data-resource self-description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataResource'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /catalog/softwareresources/{id}:
+    get:
+      tags:
+        - catalog
+      operationId: getSoftwareResource
+      summary: Software-resource self-description referenced by a purpose offering.
+      parameters:
+        - $ref: '#/components/parameters/CatalogId'
+      responses:
+        '200':
+          description: The software-resource self-description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SoftwareResource'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /participants/{id}:
+    get:
+      tags:
+        - participants
+      operationId: getParticipantSelfDescription
+      summary: Participant self-description (used to build consent receipts).
+      description: |
+        The consent-manager fetches each participant's `selfDescriptionURL` while
+        building a receipt and reads `legalName` and `legalPerson.legalAddress`.
+      parameters:
+        - $ref: '#/components/parameters/CatalogId'
+      responses:
+        '200':
+          description: The participant self-description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelfDescription'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  parameters:
+    ParticipantId:
+      name: participantId
+      in: path
+      required: true
+      description: Base64-encoded participant self-description identifier.
+      schema:
+        type: string
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      description: Base64-encoded data-provider self-description identifier.
+      schema:
+        type: string
+    ConsumerId:
+      name: consumerId
+      in: path
+      required: true
+      description: Base64-encoded data-consumer self-description identifier.
+      schema:
+        type: string
+    ContractId:
+      name: contractId
+      in: path
+      required: true
+      schema:
+        type: string
+    CatalogId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    HasSigned:
+      name: hasSigned
+      in: query
+      required: false
+      description: When true, only contracts that have been signed by all parties are returned.
+      schema:
+        type: boolean
+        default: false
+  responses:
+    NotFound:
+      description: The requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    BilateralContractList:
+      type: object
+      description: Wrapper the consent-manager expects for a list of contracts.
+      properties:
+        contracts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BilateralContract'
+    EcosystemContractList:
+      type: object
+      properties:
+        contracts:
+          type: array
+          items:
+            $ref: '#/components/schemas/EcosystemContract'
+    BilateralContract:
+      type: object
+      description: A Prometheus-X bilateral contract (ODRL policy document) between two participants.
+      properties:
+        _id:
+          type: string
+        uid:
+          type: string
+        uri:
+          type: string
+        profile:
+          type: string
+        status:
+          type: string
+          description: 'Signature status of the contract, one of: pending, signed, revoked, terminated, draft.'
+        dataProvider:
+          type: string
+          description: Self-description identifier of the data provider.
+        dataConsumer:
+          type: string
+          description: Self-description identifier of the data consumer.
+        serviceOffering:
+          type: string
+          description: URL of the service-offering self-description (dereferenced to data resources).
+        policy:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlPolicy'
+        purpose:
+          type: array
+          items:
+            $ref: '#/components/schemas/Purpose'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    EcosystemContract:
+      type: object
+      description: A Prometheus-X ecosystem contract governing a multi-party data space.
+      properties:
+        _id:
+          type: string
+        uid:
+          type: string
+        ecosystem:
+          type: string
+        orchestrator:
+          type: string
+        status:
+          type: string
+          description: 'Signature status of the contract, one of: pending, signed, revoked, terminated, draft.'
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/EcosystemMember'
+        serviceOfferings:
+          type: array
+          items:
+            $ref: '#/components/schemas/EcosystemServiceOffering'
+        purpose:
+          type: array
+          items:
+            $ref: '#/components/schemas/Purpose'
+    EcosystemMember:
+      type: object
+      properties:
+        participant:
+          type: string
+        role:
+          type: string
+        signature:
+          type: string
+    EcosystemServiceOffering:
+      type: object
+      properties:
+        participant:
+          type: string
+        serviceOffering:
+          type: string
+        policies:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlPolicy'
+    OdrlPolicy:
+      type: object
+      description: An ODRL policy - a set of permissions and prohibitions over a target.
+      properties:
+        '@type':
+          type: string
+        uid:
+          type: string
+        permission:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlRule'
+        prohibition:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlRule'
+    OdrlRule:
+      type: object
+      properties:
+        '@type':
+          type: string
+        target:
+          type: string
+        action:
+          type: string
+        assigner:
+          type: string
+        assignee:
+          type: string
+        constraint:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlConstraint'
+    OdrlConstraint:
+      type: object
+      properties:
+        '@type':
+          type: string
+        leftOperand:
+          type: string
+        operator:
+          type: string
+        rightOperand:
+          type: string
+    Purpose:
+      type: object
+      description: A processing purpose. `purpose` is either a descriptive string or a URL to a software/purpose offering.
+      properties:
+        uid:
+          type: string
+        purpose:
+          type: string
+        serviceOffering:
+          type: string
+        resource:
+          type: string
+        purposeCategory:
+          type: array
+          items:
+            type: string
+        consentType:
+          type: string
+        piiCategory:
+          type: array
+          items:
+            type: string
+        primaryPurpose:
+          type: boolean
+    ServiceOffering:
+      type: object
+      description: Catalog service-offering self-description.
+      properties:
+        '@context':
+          type: string
+        '@type':
+          type: string
+        '@id':
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        aggregationOf:
+          type: array
+          items:
+            type: string
+        dataResources:
+          type: array
+          description: URLs of the data resources exposed by a data offering.
+          items:
+            type: string
+        softwareResources:
+          type: array
+          description: URLs of the software resources exposed by a purpose offering.
+          items:
+            type: string
+        policy:
+          type: array
+          items:
+            $ref: '#/components/schemas/OdrlPolicy'
+        providedBy:
+          type: string
+    DataResource:
+      type: object
+      description: Catalog data-resource self-description (Prometheus-X catalog model).
+      required:
+        - name
+        - description
+        - producedBy
+        - containsPII
+      properties:
+        '@context':
+          type: string
+        '@type':
+          type: string
+        '@id':
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        producedBy:
+          type: string
+        containsPII:
+          type: boolean
+        aggregationOf:
+          type: array
+          items:
+            type: string
+        copyrightOwnedBy:
+          type: array
+          items:
+            type: string
+        license:
+          type: array
+          items:
+            type: string
+        exposedThrough:
+          type: array
+          items:
+            type: string
+        category:
+          type: string
+        representation:
+          type: string
+          description: Reference to the representation that locates the actual data (endpoint, method, schema).
+        isPayloadForAPI:
+          type: boolean
+          default: false
+        apiResponseRepresentation:
+          type: string
+        obsoleteDateTime:
+          type: string
+        expirationDateTime:
+          type: string
+        schema_version:
+          type: string
+          default: '1'
+    SoftwareResource:
+      type: object
+      description: Catalog software-resource self-description (its name becomes the consent purpose).
+      properties:
+        '@context':
+          type: string
+        '@type':
+          type: string
+        '@id':
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    SelfDescription:
+      type: object
+      description: Participant self-description read by the consent-manager receipt builder.
+      properties:
+        did:
+          type: string
+        legalName:
+          type: string
+        legalPerson:
+          $ref: '#/components/schemas/LegalPerson'
+    LegalPerson:
+      type: object
+      properties:
+        registrationNumber:
+          type: string
+        headquartersAddress:
+          $ref: '#/components/schemas/Address'
+        legalAddress:
+          $ref: '#/components/schemas/Address'
+        subOrganization:
+          type: array
+          items:
+            type: string
+    Address:
+      type: object
+      properties:
+        countryCode:
+          type: string
+    VerificationResult:
+      type: object
+      properties:
+        verified:
+          type: boolean
+          description: True if at least one signed contract exists between the two participants.
+        contracts:
+          type: array
+          items:
+            $ref: '#/components/schemas/BilateralContract'
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string

@@ -1,0 +1,60 @@
+micronaut:
+  application:
+    name: consent-facade
+
+  server:
+    port: 8080
+
+  metrics:
+    enabled: true
+    export:
+      prometheus:
+        step: PT2s
+        descriptions: false
+
+  # HTTP clients for the consumed TM Forum APIs
+  http:
+    services:
+      product-order:
+        path: "/tmf-api/productOrderingManagement/v4"
+        url: http://localhost:8081
+        read-timeout: 30
+      product-catalog:
+        path: "/tmf-api/productCatalogManagement/v4"
+        url: http://localhost:8082
+        read-timeout: 30
+      party:
+        path: "/tmf-api/party/v4"
+        url: http://localhost:8083
+        read-timeout: 30
+      agreement:
+        path: "/tmf-api/agreementManagement/v4"
+        url: http://localhost:8084
+        read-timeout: 30
+
+http:
+  client:
+    log-exception: false
+  server:
+    log:
+      exclude-paths:
+        - /health
+        - /metrics
+        - /prometheus
+
+endpoints:
+  all:
+    port: 9090
+
+# facade specific configuration
+facade:
+  # public base url of this facade, used to build the self-description urls the contracts point back at
+  self-url: http://localhost:8080
+  # self-description identifiers of the two parties of a bilateral contract
+  provider:
+    self-description: ${facade.self-url}/participants/provider
+  consumer:
+    self-description: ${facade.self-url}/participants/consumer
+  # TM Forum party characteristic that carries the participant did
+  party:
+    did-characteristic: "did"
