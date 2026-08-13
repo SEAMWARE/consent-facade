@@ -21,51 +21,52 @@ import org.fiware.consent.model.SoftwareResourceVO;
 import org.fiware.consent.model.VerificationResultVO;
 import org.fiware.consent.provider.ProviderRegistry;
 import org.fiware.consent.provider.ProviderScopedId;
+import org.fiware.consent.provider.TMForumClientFactory;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiFunction;
 
 /**
  * Implements the API provided towards the consent-manager (see api/consent-facade.yaml).
  *
- * <p>The bilateral-contract endpoints are projected from TM Forum agreements: the
- * {@link TMForumBackedRepository} reads the agreements the EDC extension writes and the
- * {@link AgreementContractMapper} maps each into a {@link BilateralContractVO}.
+ * <p>Every request is routed to the right provider's TM Forum backend (multi-provider plan,
+ * {@code REQUIREMENTS.md} §11.6). Endpoints that carry a facade-minted id ({@code /bilaterals/{id}},
+ * all {@code /catalog/*}, {@code /participants/{id}}) decode the {@link ProviderScopedId} and resolve
+ * the provider via the {@link ProviderRegistry}; an unknown provider key yields {@code 404}. The
+ * lookup endpoints that carry only a participant ({@code /bilaterals/for}, {@code /verify}) fan out
+ * across <em>all</em> registered providers, since a participant may hold contracts at more than one.
+ * The {@link TMForumClientFactory} turns a resolved provider into the {@link TMForumBackedRepository}
+ * that reads its backend.
  *
- * <p>The participant endpoint is projected from a TM Forum organization via the
- * {@link OrganizationSelfDescriptionMapper}. The catalog service-offering, data-resource and
- * software-resource endpoints are projected via the {@link CatalogMapper}: an agreement's service
- * offering bundles all of the agreement's product specifications as {@code dataResources} (the data)
- * and {@code softwareResources} (the purposes); each data resource is a mapped product specification
- * and each software resource is that specification's purpose characteristic. The ecosystem-contract
- * endpoints remain scaffolded ({@code 404}/empty) - ecosystem contracts have no TM Forum source yet.
+ * <p>The bilateral-contract endpoints are projected from TM Forum agreements via the
+ * {@link AgreementContractMapper}; the participant endpoint from a TM Forum organization via the
+ * {@link OrganizationSelfDescriptionMapper}; and the catalog service-offering, data-resource and
+ * software-resource endpoints via the {@link CatalogMapper}. The ecosystem-contract endpoints remain
+ * scaffolded ({@code 404}/empty) - ecosystem contracts have no TM Forum source yet.
  */
 @Slf4j
 @Controller("${facade.base-path:/}")
 @RequiredArgsConstructor
 public class ConsentFacadeController implements ContractsApi, CatalogApi, ParticipantsApi {
 
-    private final TMForumBackedRepository repository;
+    private final ProviderRegistry providerRegistry;
+    private final TMForumClientFactory tmForumClientFactory;
     private final AgreementContractMapper agreementContractMapper;
     private final OrganizationSelfDescriptionMapper organizationSelfDescriptionMapper;
     private final CatalogMapper catalogMapper;
-    private final ProviderRegistry providerRegistry;
 
     // ---- contracts -------------------------------------------------------------------
 
     @Override
     public Mono<HttpResponse<BilateralContractListVO>> getBilateralContractsForParticipant(String participantId, Boolean hasSigned) {
         String participantSelfDescriptionId = decodeParticipantId(participantId);
-        // The agreements are read from a single (default) TM Forum backend until per-provider
-        // routing is wired (multi-provider plan, REQUIREMENTS.md §11.6), so the contracts minted here
-        // are scoped to the default provider.
-        String providerKey = defaultProviderKey();
-        return repository.findAgreements()
-                .map(agreement -> agreementContractMapper.toBilateralContract(agreement, providerKey))
+        return projectAllContracts()
                 .filter(contract -> involvesParticipant(contract, participantSelfDescriptionId))
                 .filter(contract -> !requiresSigned(hasSigned) || agreementContractMapper.isSigned(contract))
                 .collectList()
@@ -75,11 +76,10 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
 
     @Override
     public Mono<HttpResponse<BilateralContractVO>> getBilateralContract(String contractId) {
-        ProviderScopedId scopedId = ProviderScopedId.decode(contractId);
-        return repository.findAgreementById(scopedId.localId())
+        return routeById(contractId, (repository, scopedId) -> repository.findAgreementById(scopedId.localId())
                 .map(agreement -> agreementContractMapper.toBilateralContract(agreement, scopedId.providerKey()))
                 .<HttpResponse<BilateralContractVO>>map(HttpResponse::ok)
-                .defaultIfEmpty(HttpResponse.notFound());
+                .defaultIfEmpty(HttpResponse.notFound()));
     }
 
     @Override
@@ -97,9 +97,7 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     public Mono<HttpResponse<VerificationResultVO>> verifyContract(String providerId, String consumerId) {
         String providerSelfDescriptionId = decodeParticipantId(providerId);
         String consumerSelfDescriptionId = decodeParticipantId(consumerId);
-        String providerKey = defaultProviderKey();
-        return repository.findAgreements()
-                .map(agreement -> agreementContractMapper.toBilateralContract(agreement, providerKey))
+        return projectAllContracts()
                 .filter(agreementContractMapper::isSigned)
                 .filter(contract -> Objects.equals(contract.getDataProvider(), providerSelfDescriptionId)
                         && Objects.equals(contract.getDataConsumer(), consumerSelfDescriptionId))
@@ -113,33 +111,30 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     @Override
     public Mono<HttpResponse<ServiceOfferingVO>> getServiceOffering(String id) {
         // one contract = one agreement = one service offering bundling all of the agreement's specifications
-        ProviderScopedId scopedId = ProviderScopedId.decode(id);
-        return repository.findAgreementById(scopedId.localId())
+        return routeById(id, (repository, scopedId) -> repository.findAgreementById(scopedId.localId())
                 .flatMap(agreement -> repository.resolveSpecificationIds(agreement)
                         .collectList()
                         .map(specificationIds -> catalogMapper.toServiceOffering(
                                 scopedId.providerKey(), scopedId.localId(), specificationIds)))
                 .<HttpResponse<ServiceOfferingVO>>map(HttpResponse::ok)
-                .defaultIfEmpty(HttpResponse.notFound());
+                .defaultIfEmpty(HttpResponse.notFound()));
     }
 
     @Override
     public Mono<HttpResponse<DataResourceVO>> getDataResource(String id) {
-        ProviderScopedId scopedId = ProviderScopedId.decode(id);
-        return repository.findProductSpecificationById(scopedId.localId())
+        return routeById(id, (repository, scopedId) -> repository.findProductSpecificationById(scopedId.localId())
                 .map(specification -> catalogMapper.toDataResource(scopedId.providerKey(), specification))
                 .<HttpResponse<DataResourceVO>>map(HttpResponse::ok)
-                .defaultIfEmpty(HttpResponse.notFound());
+                .defaultIfEmpty(HttpResponse.notFound()));
     }
 
     @Override
     public Mono<HttpResponse<SoftwareResourceVO>> getSoftwareResource(String id) {
         // a software resource is the purpose of a product specification (its id == the spec id)
-        ProviderScopedId scopedId = ProviderScopedId.decode(id);
-        return repository.findProductSpecificationById(scopedId.localId())
+        return routeById(id, (repository, scopedId) -> repository.findProductSpecificationById(scopedId.localId())
                 .map(specification -> catalogMapper.toSoftwareResource(scopedId.providerKey(), specification))
                 .<HttpResponse<SoftwareResourceVO>>map(HttpResponse::ok)
-                .defaultIfEmpty(HttpResponse.notFound());
+                .defaultIfEmpty(HttpResponse.notFound()));
     }
 
     // ---- participants ----------------------------------------------------------------
@@ -147,23 +142,41 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     @Override
     public Mono<HttpResponse<SelfDescriptionVO>> getParticipantSelfDescription(String id) {
         // Participant self-description URLs are not provider-scoped yet (minted at registration,
-        // multi-provider plan §11.7); decode tolerates both the composite and the bare form.
-        ProviderScopedId scopedId = ProviderScopedId.decode(id);
-        return repository.findOrganizationById(scopedId.localId())
+        // multi-provider plan §11.7); decode tolerates both the composite and the bare form, the
+        // latter resolving to the default provider.
+        return routeById(id, (repository, scopedId) -> repository.findOrganizationById(scopedId.localId())
                 .map(organizationSelfDescriptionMapper::toSelfDescription)
                 .<HttpResponse<SelfDescriptionVO>>map(HttpResponse::ok)
-                .defaultIfEmpty(HttpResponse.notFound());
+                .defaultIfEmpty(HttpResponse.notFound()));
+    }
+
+    // ---- routing ---------------------------------------------------------------------
+
+    /**
+     * Projects every registered provider's agreements into bilateral contracts, each scoped to its
+     * provider. Used by the participant-scoped lookups ({@code /bilaterals/for}, {@code /verify}),
+     * which must consider all providers because a participant may hold contracts at more than one.
+     */
+    private Flux<BilateralContractVO> projectAllContracts() {
+        return Flux.fromIterable(providerRegistry.all())
+                .flatMap(provider -> tmForumClientFactory.forProvider(provider).findAgreements()
+                        .map(agreement -> agreementContractMapper.toBilateralContract(agreement, provider.key())));
+    }
+
+    /**
+     * Routes a request that carries a facade-minted, provider-scoped id: decodes the id, resolves the
+     * provider, and hands the handler that provider's repository and the decoded id. An unknown
+     * provider key short-circuits to {@code 404}.
+     */
+    private <T> Mono<HttpResponse<T>> routeById(
+            String encodedId, BiFunction<TMForumBackedRepository, ProviderScopedId, Mono<HttpResponse<T>>> handler) {
+        ProviderScopedId scopedId = ProviderScopedId.decode(encodedId);
+        return providerRegistry.byKey(scopedId.providerKey())
+                .map(provider -> handler.apply(tmForumClientFactory.forProvider(provider), scopedId))
+                .orElseGet(() -> Mono.just(HttpResponse.notFound()));
     }
 
     // ---- helpers ---------------------------------------------------------------------
-
-    /**
-     * Key of the provider whose backend the facade currently reads from. Until per-request routing
-     * (multi-provider plan §11.6) is wired, everything is served from the default provider.
-     */
-    private String defaultProviderKey() {
-        return providerRegistry.defaultProvider().key();
-    }
 
     private static boolean involvesParticipant(BilateralContractVO contract, String participantSelfDescriptionId) {
         return Objects.equals(contract.getDataProvider(), participantSelfDescriptionId)

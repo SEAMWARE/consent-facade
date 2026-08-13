@@ -170,17 +170,12 @@ class ConsentFacadeControllerTest {
     }
 
     @Test
-    void getBilateralContract_preservesANonDefaultProviderKey() {
-        when(agreementApiClient.retrieveAgreement(eq("agreement-1"), any()))
-                .thenReturn(Mono.just(HttpResponse.ok(signedAgreement("agreement-1"))));
+    void getBilateralContract_returns404ForAnUnknownProvider() {
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(HttpRequest.GET("/bilaterals/unregistered~agreement-1"), BilateralContractVO.class));
 
-        BilateralContractVO contract = client.toBlocking()
-                .retrieve(HttpRequest.GET("/bilaterals/provider-x~agreement-1"), BilateralContractVO.class);
-
-        assertEquals("provider-x~agreement-1", contract.getId(),
-                "The provider key from the composite contract id is preserved on the round-trip.");
-        assertEquals(PROVIDER_ID, contract.getDataProvider(),
-                "Only the local id is used to look the agreement up in the backend.");
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatus(),
+                "A contract id scoped to an unregistered provider cannot be routed and maps to 404.");
     }
 
     @Test
@@ -282,6 +277,15 @@ class ConsentFacadeControllerTest {
                 client.toBlocking().retrieve(HttpRequest.GET("/catalog/serviceofferings/missing"), ServiceOfferingVO.class));
 
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatus(), "A missing agreement should map to 404.");
+    }
+
+    @Test
+    void getServiceOffering_returns404ForAnUnknownProvider() {
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(HttpRequest.GET("/catalog/serviceofferings/unregistered~agr-1"), ServiceOfferingVO.class));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatus(),
+                "A catalog id scoped to an unregistered provider cannot be routed and maps to 404.");
     }
 
     @Test

@@ -414,10 +414,12 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
 - **Not yet wired into the controller** — the factory + low-level path exist and are unit-tested (`TMForumClientFactoryTest`, `HttpTMForumApisTest`), but the controller still uses the injected default repository directly; routing through the factory is Phase 4. So this phase is behaviour-preserving (73 tests green).
 - **Deployment note for Phase 4:** the default provider still reads via the generated clients (`tmfApiUrl` → `micronaut.http.services.*`), so `facade.providers.default.tmforum-base-url` stays **unused**; a *non-default* provider must supply its own `facade.providers.<key>.tmforum-base-url` (host root, like `tmfApiUrl`).
 
-### 11.6 Phase 4 — Route each endpoint by provider
+### 11.6 Phase 4 — Route each endpoint by provider — **implemented**
 
-- Each controller method already extracts the `providerKey`: from the base64 participant SD URL on `/for`+`/verify`, and from the `ProviderScopedId` composite on `/bilaterals/{id}` + all `/catalog/*` (Phase 2). Phase 4 turns that key into a backend: `ProviderRegistry.byKey` → `TMForumClientFactory` → per-provider repository → existing (already provider-aware) mappers. The `/for`+`/verify` endpoints, which currently read a single backend, fan out across `ProviderRegistry.all()`.
-- Unknown/unregistered provider key → `404`/`Problem`.
+- The controller no longer injects a single repository; it injects the `ProviderRegistry` + `TMForumClientFactory` and routes every request:
+  - **Id-carrying endpoints** (`/bilaterals/{id}`, all `/catalog/*`, `/participants/{id}`) go through `routeById`: decode the `ProviderScopedId` → `ProviderRegistry.byKey` → `TMForumClientFactory.forProvider` → that provider's repository, projecting with the decoded key. An **unknown provider key short-circuits to `404`** (it can't be routed).
+  - **Participant-scoped lookups** (`/bilaterals/for`, `/verify`) **fan out** across `ProviderRegistry.all()` via `projectAllContracts()` — a participant may hold contracts at more than one provider — projecting each provider's agreements with its own key, then filtering by participant.
+- Behaviour-preserving for a single-provider deployment: fan-out over `[default]` and `byKey("default")` reproduce the previous single-backend behaviour exactly; the only new outcome is `404` for an unregistered key. Covered by `getBilateralContract_returns404ForAnUnknownProvider` / `getServiceOffering_returns404ForAnUnknownProvider` (74 tests green).
 
 ### 11.7 Phase 5 — Provider-aware registration
 
