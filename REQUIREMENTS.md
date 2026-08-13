@@ -384,12 +384,14 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
 3. **A `TMForumClientFactory`** produces per-provider TM Forum access at runtime (keyed by endpoint, cached).
 4. **Backward compatible** — a single `default` provider entry keeps today's single-endpoint behaviour working.
 
-### 11.3 Phase 1 — Provider registry abstraction + static config (foundation)
+### 11.3 Phase 1 — Provider registry abstraction + static config (foundation) — **implemented**
 
 - `ProviderConfig` (record): `key`, `tmforumBaseUrl` (+ later `didCharacteristic`, `purposeCharacteristic`, auth).
-- `ProviderRegistry` (interface): `Optional<ProviderConfig> byKey(String)`, `Optional<ProviderConfig> byParticipantSelfDescription(String sdUrl)`, `Collection<ProviderConfig> all()`.
-- `StaticProviderRegistry` backed by new config `facade.providers` (map `key → { tmforum-base-url }`) in `FacadeProperties`.
-- Migrate the current single endpoint into a `default` provider entry; no behaviour change yet.
+- `ProviderRegistry` (interface): `Optional<ProviderConfig> byKey(String)`, `ProviderConfig defaultProvider()`, `Collection<ProviderConfig> all()`.
+- `StaticProviderRegistry` (`@Singleton`) backed by `ProviderConfiguration` (`@EachProperty("facade.providers")`); a `default` provider is required and its absence fails fast at startup.
+- Config `facade.providers.<key>.tmforum-base-url` (default `default` entry in `application.yaml`); **not yet consumed** — the generated TM Forum clients still use `micronaut.http.services.*` until Phase 3.
+- Package `org.fiware.consent.provider`; unit-tested in `StaticProviderRegistryTest`. No behaviour change (nothing routes through the registry yet — that is Phase 4).
+- Deferred to Phase 2/4: `byParticipantSelfDescription(sdUrl)` (needs the provider-keyed SD-URL scheme first).
 
 ### 11.4 Phase 2 — Provider-keyed identifier scheme (API-affecting)
 

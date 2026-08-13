@@ -62,3 +62,10 @@ facade:
   # TM Forum party characteristic that carries the participant did
   party:
     did-characteristic: "did"
+  # provider registry (multi-provider plan, REQUIREMENTS.md §11): providerKey -> TM Forum backend.
+  # A 'default' provider is required; single-provider deployments configure only this entry.
+  # NOTE: tmforum-base-url is not yet consumed - until per-provider client routing is wired the
+  # generated TM Forum clients still resolve their base url from micronaut.http.services.*.
+  providers:
+    default:
+      tmforum-base-url: http://localhost:8080
