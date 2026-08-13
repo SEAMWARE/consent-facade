@@ -8,6 +8,8 @@ import org.fiware.consent.configuration.FacadeProperties;
 import org.fiware.consent.model.DataResourceVO;
 import org.fiware.consent.model.ServiceOfferingVO;
 import org.fiware.consent.model.SoftwareResourceVO;
+import org.fiware.consent.provider.ProviderConfig;
+import org.fiware.consent.provider.ProviderRegistry;
 import org.fiware.consent.tmforum.productcatalog.model.CharacteristicValueSpecificationVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationCharacteristicVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
@@ -62,18 +64,22 @@ public class CatalogMapper {
     private final CatalogUrls catalogUrls;
     private final FacadeProperties facadeProperties;
     private final ObjectMapper objectMapper;
+    private final ProviderRegistry providerRegistry;
 
     /**
      * Creates the mapper.
      *
      * @param catalogUrls      builds the catalog self-description URLs (consistency invariant)
-     * @param facadeProperties provides the purpose characteristic name and the provider self-description
+     * @param facadeProperties provides the purpose characteristic name and the legacy provider self-description
      * @param objectMapper     used to parse a JSON-string purpose characteristic value
+     * @param providerRegistry resolves the routed provider's own self-description for {@code producedBy}
      */
-    public CatalogMapper(CatalogUrls catalogUrls, FacadeProperties facadeProperties, ObjectMapper objectMapper) {
+    public CatalogMapper(CatalogUrls catalogUrls, FacadeProperties facadeProperties, ObjectMapper objectMapper,
+                         ProviderRegistry providerRegistry) {
         this.catalogUrls = catalogUrls;
         this.facadeProperties = facadeProperties;
         this.objectMapper = objectMapper;
+        this.providerRegistry = providerRegistry;
     }
 
     /**
@@ -104,10 +110,13 @@ public class CatalogMapper {
 
     /**
      * Maps a product specification into a data-resource self-description. {@code producedBy} is the
-     * provider self-description ({@code facade.provider.self-description}) and {@code containsPII} is
-     * always {@code true} - both are required by the Prometheus-X data-resource model.
+     * routed provider's own self-description ({@code facade.providers.<key>.self-description}, plan
+     * §11.7) and {@code containsPII} is always {@code true} - both are required by the Prometheus-X
+     * data-resource model. When the provider has no self-description configured, {@code producedBy}
+     * falls back to the legacy global {@code facade.provider.self-description}.
      *
-     * @param providerKey   key of the provider owning the specification (woven into the @id URL)
+     * @param providerKey   key of the provider owning the specification (woven into the @id URL,
+     *                      and whose self-description becomes {@code producedBy})
      * @param specification the product specification
      * @return the data resource, or {@code null} if {@code specification} is {@code null}
      */
@@ -120,8 +129,19 @@ public class CatalogMapper {
                 .atType(DATA_RESOURCE_TYPE)
                 .name(specification.getName())
                 .description(specification.getDescription())
-                .producedBy(facadeProperties.getProvider().getSelfDescription())
+                .producedBy(producedBy(providerKey))
                 .containsPII(CONTAINS_PII);
+    }
+
+    /**
+     * The {@code producedBy} of a data resource: the routed provider's own self-description, falling
+     * back to the legacy global {@code facade.provider.self-description} when the provider has none.
+     */
+    private String producedBy(String providerKey) {
+        return providerRegistry.byKey(providerKey)
+                .map(ProviderConfig::selfDescription)
+                .filter(selfDescription -> selfDescription != null && !selfDescription.isBlank())
+                .orElseGet(() -> facadeProperties.getProvider().getSelfDescription());
     }
 
     /**

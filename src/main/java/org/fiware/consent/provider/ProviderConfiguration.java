@@ -25,6 +25,7 @@ public class ProviderConfiguration {
 
     private final String key;
     private String tmforumBaseUrl;
+    private String selfDescription;
 
     /**
      * Creates the configuration for one provider.
@@ -54,5 +55,19 @@ public class ProviderConfiguration {
      */
     public void setTmforumBaseUrl(String tmforumBaseUrl) {
         this.tmforumBaseUrl = tmforumBaseUrl;
+    }
+
+    /**
+     * @return this provider participant's own (provider-keyed) self-description URL, or {@code null}
+     */
+    public String getSelfDescription() {
+        return selfDescription;
+    }
+
+    /**
+     * @param selfDescription this provider participant's own (provider-keyed) self-description URL
+     */
+    public void setSelfDescription(String selfDescription) {
+        this.selfDescription = selfDescription;
     }
 }

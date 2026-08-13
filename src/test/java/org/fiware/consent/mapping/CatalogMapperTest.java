@@ -5,6 +5,9 @@ import org.fiware.consent.configuration.FacadeProperties;
 import org.fiware.consent.model.DataResourceVO;
 import org.fiware.consent.model.ServiceOfferingVO;
 import org.fiware.consent.model.SoftwareResourceVO;
+import org.fiware.consent.provider.ProviderConfiguration;
+import org.fiware.consent.provider.ProviderRegistry;
+import org.fiware.consent.provider.StaticProviderRegistry;
 import org.fiware.consent.tmforum.productcatalog.model.CharacteristicValueSpecificationVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationCharacteristicVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
@@ -27,17 +30,35 @@ class CatalogMapperTest {
     private static final String SELF_URL = "http://facade.example";
     private static final String PROVIDER_SD = "did:web:provider.example";
     private static final String PURPOSE_CHARACTERISTIC = "purpose";
+    /** A provider without its own configured self-description (producedBy falls back to the legacy static). */
     private static final String PROVIDER_KEY = "provider-x";
+    /** A provider with its own configured self-description. */
+    private static final String PROVIDER_WITH_SD_KEY = "provider-y";
+    private static final String PROVIDER_Y_SD = SELF_URL + "/participants/provider-y~org-y";
 
     private final FacadeProperties facadeProperties = facadeProperties();
     private final CatalogMapper mapper =
-            new CatalogMapper(new CatalogUrls(facadeProperties), facadeProperties, new ObjectMapper());
+            new CatalogMapper(new CatalogUrls(facadeProperties), facadeProperties, new ObjectMapper(), providerRegistry());
 
     private static FacadeProperties facadeProperties() {
         FacadeProperties facadeProperties = new FacadeProperties();
         facadeProperties.setSelfUrl(SELF_URL);
         facadeProperties.getProvider().setSelfDescription(PROVIDER_SD);
         return facadeProperties;
+    }
+
+    private static ProviderRegistry providerRegistry() {
+        return new StaticProviderRegistry(List.of(
+                providerConfiguration(ProviderRegistry.DEFAULT_PROVIDER_KEY, null),
+                providerConfiguration(PROVIDER_KEY, null),
+                providerConfiguration(PROVIDER_WITH_SD_KEY, PROVIDER_Y_SD)));
+    }
+
+    private static ProviderConfiguration providerConfiguration(String key, String selfDescription) {
+        ProviderConfiguration configuration = new ProviderConfiguration(key);
+        configuration.setTmforumBaseUrl("http://tm-forum-api." + key + ".svc:8080");
+        configuration.setSelfDescription(selfDescription);
+        return configuration;
     }
 
     @Test
@@ -80,8 +101,19 @@ class CatalogMapperTest {
         assertEquals("DataResource", dataResource.getAtType(), "The data resource carries its @type.");
         assertEquals("Customer profile", dataResource.getName(), "The name comes from the specification.");
         assertEquals("The customer's profile data", dataResource.getDescription(), "The description comes from the specification.");
-        assertEquals(PROVIDER_SD, dataResource.getProducedBy(), "producedBy is the provider self-description.");
+        assertEquals(PROVIDER_SD, dataResource.getProducedBy(),
+                "producedBy falls back to facade.provider.self-description when the provider configures none.");
         assertEquals(Boolean.TRUE, dataResource.getContainsPII(), "Consent-gated data always contains PII.");
+    }
+
+    @Test
+    void toDataResource_producedByIsTheRoutedProvidersOwnSelfDescription() {
+        ProductSpecificationVO specification = new ProductSpecificationVO().id("spec-1").name("Customer profile");
+
+        DataResourceVO dataResource = mapper.toDataResource(PROVIDER_WITH_SD_KEY, specification);
+
+        assertEquals(PROVIDER_Y_SD, dataResource.getProducedBy(),
+                "producedBy is the routed provider's own configured self-description.");
     }
 
     @Test

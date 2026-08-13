@@ -64,8 +64,12 @@ facade:
     did-characteristic: "did"
   # provider registry (multi-provider plan, REQUIREMENTS.md §11): providerKey -> TM Forum backend.
   # A 'default' provider is required; single-provider deployments configure only this entry.
-  # NOTE: tmforum-base-url is not yet consumed - until per-provider client routing is wired the
-  # generated TM Forum clients still resolve their base url from micronaut.http.services.*.
+  # - tmforum-base-url: base url of that provider's TM Forum backend. The default provider still
+  #   reads via the generated clients (micronaut.http.services.*); a non-default provider is read
+  #   over this url.
+  # - self-description (optional): the provider participant's own provider-keyed self-description
+  #   URL, used as the producedBy of its data resources (§11.7). Falls back to
+  #   facade.provider.self-description when unset.
   providers:
     default:
       tmforum-base-url: http://localhost:8080

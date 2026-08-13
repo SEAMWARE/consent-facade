@@ -39,8 +39,8 @@ public class StaticProviderRegistry implements ProviderRegistry {
     public StaticProviderRegistry(List<ProviderConfiguration> providerConfigurations) {
         Map<String, ProviderConfig> providers = new LinkedHashMap<>();
         for (ProviderConfiguration configuration : providerConfigurations) {
-            providers.put(configuration.getKey(),
-                    new ProviderConfig(configuration.getKey(), configuration.getTmforumBaseUrl()));
+            providers.put(configuration.getKey(), new ProviderConfig(
+                    configuration.getKey(), configuration.getTmforumBaseUrl(), configuration.getSelfDescription()));
         }
         if (!providers.containsKey(DEFAULT_PROVIDER_KEY)) {
             throw new IllegalStateException(

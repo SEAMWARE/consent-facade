@@ -18,11 +18,11 @@ import static org.mockito.Mockito.mock;
 class TMForumClientFactoryTest {
 
     private static final ProviderConfig DEFAULT_PROVIDER =
-            new ProviderConfig(ProviderRegistry.DEFAULT_PROVIDER_KEY, "http://tm-forum-api.default.svc:8080");
+            new ProviderConfig(ProviderRegistry.DEFAULT_PROVIDER_KEY, "http://tm-forum-api.default.svc:8080", null);
     private static final ProviderConfig PROVIDER_A =
-            new ProviderConfig("provider-a", "http://tm-forum-api.provider-a.svc:8080");
+            new ProviderConfig("provider-a", "http://tm-forum-api.provider-a.svc:8080", null);
     private static final ProviderConfig PROVIDER_B =
-            new ProviderConfig("provider-b", "http://tm-forum-api.provider-b.svc:8080");
+            new ProviderConfig("provider-b", "http://tm-forum-api.provider-b.svc:8080", null);
 
     private TMForumBackedRepository defaultRepository;
     private TMForumClientFactory factory;

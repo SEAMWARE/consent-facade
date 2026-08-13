@@ -421,10 +421,16 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
   - **Participant-scoped lookups** (`/bilaterals/for`, `/verify`) **fan out** across `ProviderRegistry.all()` via `projectAllContracts()` — a participant may hold contracts at more than one provider — projecting each provider's agreements with its own key, then filtering by participant.
 - Behaviour-preserving for a single-provider deployment: fan-out over `[default]` and `byKey("default")` reproduce the previous single-backend behaviour exactly; the only new outcome is `404` for an unregistered key. Covered by `getBilateralContract_returns404ForAnUnknownProvider` / `getServiceOffering_returns404ForAnUnknownProvider` (74 tests green).
 
-### 11.7 Phase 5 — Provider-aware registration
+### 11.7 Phase 5 — Provider-aware registration — **facade side implemented**
 
-- Whoever registers a participant (the DSC deploy-time register Job / `consent_grant.sh` / a future registration API) must set the **provider-keyed** `selfDescriptionURL`, so the consent-manager stores it and hands it back on every call.
-- Open modelling question: which provider's TM Forum serves a **consumer** participant's org (the receipt build dereferences the consumer SD too). Typically the consumer is registered in the provider's `tm-forum-api` as an ordering party, or in a shared party registry — the SD URL's `providerKey` must name whichever endpoint actually holds that org.
+Participant self-description URLs are **shared identity**: the value in a contract's `dataProvider`/`dataConsumer` (from the agreement's `provider-id`/`consumer-id`) and the one stored at registration (`selfDescriptionURL`) must be **byte-identical**, because the consent-manager matches them. So the facade cannot unilaterally retarget participant URLs the way it retargets its private catalog URLs (§11.4). The facade's role therefore splits:
+
+- **Serve + route** provider-keyed participant URLs — done in Phase 4 (`getParticipantSelfDescription` decodes the `ProviderScopedId` and routes `byKey`; a bare/legacy id resolves to `default`).
+- **Emit** its own participant references consistently. The only participant URL the facade *emits* is a data resource's `producedBy` (the SD itself carries no dereferenceable self-id, and sub-organizations are plain ids). Phase 5 makes `producedBy` the **routed provider's own** self-description: `ProviderConfig.selfDescription` (`facade.providers.<key>.self-description`), resolved by provider key in `CatalogMapper`, falling back to the legacy global `facade.provider.self-description` when a provider configures none. Behaviour-preserving for single-provider (the `default` provider configures none → same static as before).
+
+**Deployment counterpart (DSC, not the facade — the enabler for a real second provider):** whoever registers a participant (the deploy-time register Job / `consent_grant.sh`) and whatever writes the agreement (`provider-id`/`consumer-id`) must mint the **provider-keyed** `{selfUrl}/participants/{providerKey}~{orgId}` form. Until they do, participant URLs stay bare and route to `default` (backward-compatible), which is why the single-provider live flow is unaffected.
+
+**Consumer-org modelling (resolved):** the `providerKey` in a participant SD URL names *which backend holds that org record*, not "this participant is that provider". A consumer's org is registered in the provider's `tm-forum-api` (as an ordering party), so the consumer's SD URL is keyed with the **provider's** key — both parties' SD URLs route to the same backend, which is exactly what the receipt build (which dereferences both) needs.
 
 ### 11.8 Phase 6 — Dynamic registry (API + DB) — future
 
