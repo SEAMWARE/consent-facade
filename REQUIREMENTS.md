@@ -404,11 +404,15 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
 - Still Phase 5: **participant** SD URLs stay bare (they are minted at registration, §11.7); `getParticipantSelfDescription` already decodes tolerantly so Phase 5 is a pure minting change.
 - Minting still stamps the `default` key everywhere (single backend until Phase 4). Covered by `ProviderScopedIdTest` + updated mapper/controller tests.
 
-### 11.5 Phase 3 — Per-provider TM Forum access (main technical spike)
+### 11.5 Phase 3 — Per-provider TM Forum access — **implemented**
 
 - **Problem:** the generated TM Forum clients are declarative `@Client(id=…)` beans bound to a **compile-time** service URL, so they cannot target a per-request base URL.
-- **Approach:** a `TMForumClientFactory` that, given a `ProviderConfig`, yields a `TMForumBackedRepository` bound to that endpoint — built on a low-level Micronaut `HttpClient` created per base URL (cached), reusing the generated **model** classes for (de)serialization. (Alternative to evaluate: programmatic declarative-client creation / per-provider `micronaut.http.services.*` beans.)
-- Refactor `TMForumBackedRepository` so its base URL is a constructor parameter rather than five injected singletons.
+- **Solution — a `TMForumApis` seam.** `TMForumBackedRepository` no longer injects the five generated clients; it holds one `TMForumApis` (the raw reads it needs, returning already-unwrapped `Mono`/`Flux`, empty on 404). Two implementations:
+  - `GeneratedTMForumApis` (`@Singleton`) — the **default** provider, wrapping the generated `@Client` beans (`micronaut.http.services.*`). It is the only `TMForumApis` **bean**, so it is what the context injects; behaviour and all `@MicronautTest`/mock wiring are unchanged (mocks still bite at the generated-client layer beneath it).
+  - `HttpTMForumApis` — any **other** provider, over a low-level Micronaut `HttpClient` bound to that provider's base url, hitting the standard TM Forum v4 paths (`TMForumEndpoints`) and deserializing into the same generated model classes.
+- `TMForumClientFactory` (`@Singleton`, in `provider`): `forProvider(config)` → the injected default repository for the `default` key, else a `TMForumBackedRepository` over an `HttpTMForumApis` on a client created for `config.tmforumBaseUrl()`. Clients are cached per base url, repositories per provider key, and clients are closed on shutdown (`@PreDestroy`).
+- **Not yet wired into the controller** — the factory + low-level path exist and are unit-tested (`TMForumClientFactoryTest`, `HttpTMForumApisTest`), but the controller still uses the injected default repository directly; routing through the factory is Phase 4. So this phase is behaviour-preserving (73 tests green).
+- **Deployment note for Phase 4:** the default provider still reads via the generated clients (`tmfApiUrl` → `micronaut.http.services.*`), so `facade.providers.default.tmforum-base-url` stays **unused**; a *non-default* provider must supply its own `facade.providers.<key>.tmforum-base-url` (host root, like `tmfApiUrl`).
 
 ### 11.6 Phase 4 — Route each endpoint by provider
 

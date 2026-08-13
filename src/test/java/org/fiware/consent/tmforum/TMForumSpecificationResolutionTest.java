@@ -1,18 +1,12 @@
 package org.fiware.consent.tmforum;
 
-import io.micronaut.http.HttpResponse;
-import org.fiware.consent.tmforum.agreement.api.AgreementApiClient;
 import org.fiware.consent.tmforum.agreement.model.AgreementItemVO;
 import org.fiware.consent.tmforum.agreement.model.AgreementVO;
 import org.fiware.consent.tmforum.agreement.model.ProductOfferingRefVO;
 import org.fiware.consent.tmforum.agreement.model.ProductRefVO;
-import org.fiware.consent.tmforum.party.api.OrganizationApiClient;
-import org.fiware.consent.tmforum.productcatalog.api.ProductOfferingApiClient;
-import org.fiware.consent.tmforum.productcatalog.api.ProductSpecificationApiClient;
 import org.fiware.consent.tmforum.productcatalog.model.ProductOfferingVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationRefVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
-import org.fiware.consent.tmforum.productinventory.api.ProductApiClient;
 import org.fiware.consent.tmforum.productinventory.model.ProductVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,51 +18,42 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link TMForumBackedRepository#resolveSpecifications}: walking the native TM Forum
- * references from an agreement to the product specification(s) that back it.
+ * references from an agreement to the product specification(s) that back it, over a mocked
+ * {@link TMForumApis}.
  */
 class TMForumSpecificationResolutionTest {
 
-    private ProductOfferingApiClient productOfferingApiClient;
-    private ProductSpecificationApiClient productSpecificationApiClient;
-    private ProductApiClient productApiClient;
+    private TMForumApis apis;
     private TMForumBackedRepository repository;
 
     @BeforeEach
     void setUp() {
-        productOfferingApiClient = mock(ProductOfferingApiClient.class);
-        productSpecificationApiClient = mock(ProductSpecificationApiClient.class);
-        productApiClient = mock(ProductApiClient.class);
-        repository = new TMForumBackedRepository(
-                mock(AgreementApiClient.class),
-                mock(OrganizationApiClient.class),
-                productOfferingApiClient,
-                productSpecificationApiClient,
-                productApiClient);
+        apis = mock(TMForumApis.class);
+        repository = new TMForumBackedRepository(apis);
     }
 
     private void stubOffering(String offeringId, String specificationId) {
-        when(productOfferingApiClient.retrieveProductOffering(eq(offeringId), any()))
-                .thenReturn(Mono.just(HttpResponse.ok(new ProductOfferingVO().id(offeringId)
-                        .productSpecification(new ProductSpecificationRefVO().id(specificationId)))));
+        when(apis.retrieveProductOffering(eq(offeringId)))
+                .thenReturn(Mono.just(new ProductOfferingVO().id(offeringId)
+                        .productSpecification(new ProductSpecificationRefVO().id(specificationId))));
     }
 
     private void stubProduct(String productId, String specificationId) {
-        when(productApiClient.retrieveProduct(eq(productId), any()))
-                .thenReturn(Mono.just(HttpResponse.ok(new ProductVO().id(productId)
+        when(apis.retrieveProduct(eq(productId)))
+                .thenReturn(Mono.just(new ProductVO().id(productId)
                         .productSpecification(new org.fiware.consent.tmforum.productinventory.model.ProductSpecificationRefVO()
-                                .id(specificationId)))));
+                                .id(specificationId))));
     }
 
     private void stubSpecification(String specificationId) {
-        when(productSpecificationApiClient.retrieveProductSpecification(eq(specificationId), any()))
-                .thenReturn(Mono.just(HttpResponse.ok(new ProductSpecificationVO().id(specificationId))));
+        when(apis.retrieveProductSpecification(eq(specificationId)))
+                .thenReturn(Mono.just(new ProductSpecificationVO().id(specificationId)));
     }
 
     private static AgreementVO agreementReferencing(AgreementItemVO... items) {

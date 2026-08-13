@@ -1,23 +1,15 @@
 package org.fiware.consent.tmforum;
 
-import io.micronaut.http.HttpResponse;
-import io.micronaut.http.HttpStatus;
-import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import jakarta.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.fiware.consent.tmforum.agreement.api.AgreementApiClient;
 import org.fiware.consent.tmforum.agreement.model.AgreementItemVO;
 import org.fiware.consent.tmforum.agreement.model.AgreementVO;
 import org.fiware.consent.tmforum.agreement.model.CharacteristicVO;
 import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
-import org.fiware.consent.tmforum.party.api.OrganizationApiClient;
 import org.fiware.consent.tmforum.party.model.OrganizationVO;
-import org.fiware.consent.tmforum.productcatalog.api.ProductOfferingApiClient;
-import org.fiware.consent.tmforum.productcatalog.api.ProductSpecificationApiClient;
 import org.fiware.consent.tmforum.productcatalog.model.ProductOfferingVO;
 import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
-import org.fiware.consent.tmforum.productinventory.api.ProductApiClient;
 import org.fiware.consent.tmforum.productinventory.model.ProductVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -27,8 +19,8 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Repository over the generated TM Forum HTTP clients, giving the facade a single,
- * domain-oriented access point to the two back-end APIs it reads from:
+ * Repository giving the facade a single, domain-oriented access point to the TM Forum back-end
+ * APIs it reads from:
  *
  * <ul>
  *   <li>the <em>party-catalog</em> API (organizations - the participant self-descriptions),</li>
@@ -37,6 +29,12 @@ import java.util.Optional;
  *   <li>the <em>product-catalog</em> API (product offerings and their specifications), and</li>
  *   <li>the <em>product-inventory</em> API (the product instances materialized from an order).</li>
  * </ul>
+ *
+ * <p>The raw calls go through a {@link TMForumApis}, which decouples the business logic here from the
+ * transport: the default provider's repository is backed by {@link GeneratedTMForumApis} (the
+ * compile-time clients), while {@link org.fiware.consent.provider.TMForumClientFactory} builds a
+ * repository over a low-level, base-url-bound {@link TMForumApis} for every other provider
+ * (multi-provider plan, {@code REQUIREMENTS.md} §11.5).
  *
  * <p>Beyond simple lookups it offers {@link #resolveSpecifications(AgreementVO)}, which walks the
  * native TM Forum references from an agreement to the product specification(s) that back it - the
@@ -68,17 +66,7 @@ public class TMForumBackedRepository {
     /** First page offset for the list endpoints. */
     private static final int FIRST_PAGE_OFFSET = 0;
 
-    /**
-     * {@code fields} query parameter passed to the TM Forum endpoints. {@code null} requests the
-     * full representation (no field projection).
-     */
-    private static final String ALL_FIELDS = null;
-
-    private final AgreementApiClient agreementApiClient;
-    private final OrganizationApiClient organizationApiClient;
-    private final ProductOfferingApiClient productOfferingApiClient;
-    private final ProductSpecificationApiClient productSpecificationApiClient;
-    private final ProductApiClient productApiClient;
+    private final TMForumApis apis;
 
     // ---- agreements ------------------------------------------------------------------
 
@@ -89,9 +77,7 @@ public class TMForumBackedRepository {
      * @return the agreement, or an empty {@link Mono} if no agreement with that id exists
      */
     public Mono<AgreementVO> findAgreementById(String id) {
-        return agreementApiClient.retrieveAgreement(id, ALL_FIELDS)
-                .map(HttpResponse::body)
-                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+        return apis.retrieveAgreement(id);
     }
 
     /**
@@ -111,17 +97,14 @@ public class TMForumBackedRepository {
      * @return the agreements in the requested page
      */
     public Flux<AgreementVO> findAgreements(int offset, int limit) {
-        return agreementApiClient.listAgreement(ALL_FIELDS, offset, limit)
-                .map(HttpResponse::body)
-                .flatMapMany(TMForumBackedRepository::fluxFromNullable);
+        return apis.listAgreements(offset, limit);
     }
 
     /**
      * Lists the agreements a party is engaged in, in either the provider or consumer role.
      *
-     * <p>The TM Forum list endpoint exposed by the generated client does not support server-side
-     * filtering by engaged party, so this filters the first page (see {@link #DEFAULT_PAGE_LIMIT})
-     * client-side.
+     * <p>The TM Forum list endpoint does not support server-side filtering by engaged party, so this
+     * filters the first page (see {@link #DEFAULT_PAGE_LIMIT}) client-side.
      *
      * @param partyId the {@link RelatedPartyVO#getId() id} of the engaged party
      * @return the agreements the party is engaged in
@@ -140,9 +123,7 @@ public class TMForumBackedRepository {
      * @return the organization, or an empty {@link Mono} if no organization with that id exists
      */
     public Mono<OrganizationVO> findOrganizationById(String id) {
-        return organizationApiClient.retrieveOrganization(id, ALL_FIELDS)
-                .map(HttpResponse::body)
-                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+        return apis.retrieveOrganization(id);
     }
 
     /**
@@ -162,9 +143,7 @@ public class TMForumBackedRepository {
      * @return the organizations in the requested page
      */
     public Flux<OrganizationVO> findOrganizations(int offset, int limit) {
-        return organizationApiClient.listOrganization(ALL_FIELDS, offset, limit)
-                .map(HttpResponse::body)
-                .flatMapMany(TMForumBackedRepository::fluxFromNullable);
+        return apis.listOrganizations(offset, limit);
     }
 
     // ---- product catalog / inventory -------------------------------------------------
@@ -176,9 +155,7 @@ public class TMForumBackedRepository {
      * @return the product offering, or an empty {@link Mono} if none with that id exists
      */
     public Mono<ProductOfferingVO> findProductOfferingById(String id) {
-        return productOfferingApiClient.retrieveProductOffering(id, ALL_FIELDS)
-                .map(HttpResponse::body)
-                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+        return apis.retrieveProductOffering(id);
     }
 
     /**
@@ -188,9 +165,7 @@ public class TMForumBackedRepository {
      * @return the product specification, or an empty {@link Mono} if none with that id exists
      */
     public Mono<ProductSpecificationVO> findProductSpecificationById(String id) {
-        return productSpecificationApiClient.retrieveProductSpecification(id, ALL_FIELDS)
-                .map(HttpResponse::body)
-                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+        return apis.retrieveProductSpecification(id);
     }
 
     /**
@@ -200,9 +175,7 @@ public class TMForumBackedRepository {
      * @return the product, or an empty {@link Mono} if none with that id exists
      */
     public Mono<ProductVO> findProductById(String id) {
-        return productApiClient.retrieveProduct(id, ALL_FIELDS)
-                .map(HttpResponse::body)
-                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+        return apis.retrieveProduct(id);
     }
 
     /**
@@ -293,20 +266,6 @@ public class TMForumBackedRepository {
                 .orElse(List.of())
                 .stream()
                 .anyMatch(engagedParty -> Objects.equals(engagedParty.getId(), partyId));
-    }
-
-    // ---- reactive plumbing -----------------------------------------------------------
-
-    private static <T> Flux<T> fluxFromNullable(List<T> body) {
-        return body == null ? Flux.empty() : Flux.fromIterable(body);
-    }
-
-    private static <T> Mono<T> emptyOnNotFound(Throwable throwable) {
-        if (throwable instanceof HttpClientResponseException responseException
-                && responseException.getStatus() == HttpStatus.NOT_FOUND) {
-            return Mono.empty();
-        }
-        return Mono.error(throwable);
     }
 
     /**
