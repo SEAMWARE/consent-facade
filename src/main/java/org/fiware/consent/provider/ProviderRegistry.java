@@ -26,6 +26,15 @@ public interface ProviderRegistry {
     String DEFAULT_PROVIDER_KEY = "default";
 
     /**
+     * Configuration property selecting the database-backed {@link StaticProviderRegistry persistent}
+     * registry over the {@link StaticProviderRegistry static} one (plan §11.8). When {@code true},
+     * the {@code PersistentProviderRegistry} and the admin {@code /providers} API are active and a
+     * {@code datasources.default} must be configured; otherwise the static, config-only registry is
+     * used.
+     */
+    String PERSISTENT_PROPERTY = "facade.provider-registry.persistent";
+
+    /**
      * Resolves a provider by its key.
      *
      * @param key the provider key

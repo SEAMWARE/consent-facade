@@ -432,11 +432,13 @@ Participant self-description URLs are **shared identity**: the value in a contra
 
 **Consumer-org modelling (resolved):** the `providerKey` in a participant SD URL names *which backend holds that org record*, not "this participant is that provider". A consumer's org is registered in the provider's `tm-forum-api` (as an ordering party), so the consumer's SD URL is keyed with the **provider's** key — both parties' SD URLs route to the same backend, which is exactly what the receipt build (which dereferences both) needs.
 
-### 11.8 Phase 6 — Dynamic registry (API + DB) — future
+### 11.8 Phase 6 — Dynamic registry (API + DB) — **implemented (opt-in)**
 
-- `PersistentProviderRegistry` backed by a database (Micronaut Data; small schema `provider(key, tmforum_base_url, …)`), replacing/overlaying the static config; cache with refresh.
-- Admin API: `POST/GET/PUT/DELETE /providers` (create/list/update/remove a provider→endpoint mapping), authenticated. Seed the DB from `facade.providers` on first start.
-- The registry interface (§11.3) is unchanged, so Phases 1–5 are written against it and this phase is a drop-in implementation swap plus the CRUD controller.
+- **Opt-in, off by default.** `facade.provider-registry.persistent` selects the implementation: `false` (default) keeps the config-only `StaticProviderRegistry` and adds no database; `true` activates the database-backed registry + admin API. The two registries are mutually exclusive `@Requires` beans, so exactly one claims the `ProviderRegistry` interface — Phases 1–5 (written against the interface) are unchanged, this is a drop-in swap.
+- `PersistentProviderRegistry` (`@Requires persistent=true`): Micronaut Data JDBC over a `provider(provider_key, tmforum_base_url, self_description)` table (`ProviderEntity` + `ProviderRepository`, bundled H2 driver, `schema-generate`). On first start (empty table) it **seeds from the same `facade.providers.*` config** the static registry reads, so a deployment can migrate config → database without losing providers. Reads are served from an in-memory cache refreshed on every write; the default-provider invariant still holds.
+- Admin API `ProviderAdminController` (`@Requires persistent=true`, on the blocking pool, separate from the consent-manager-facing `api/consent-facade.yaml`): `GET /providers`, `GET/POST/PUT/DELETE /providers/{key}`. Validates the key (present, no `~` separator) and base url; `POST` is create-or-`409`; `PUT` upserts under the path key; the `default` provider cannot be deleted (`400`).
+- Persistence deps (`micronaut-data-jdbc`, `micronaut-jdbc-hikari`, `h2`) are on the classpath but **inert without a `datasources.default`**, so the default deployment neither configures nor starts a database. Covered by `PersistentProviderRegistryTest` + `ProviderAdminControllerTest` (in-memory H2); 90 tests green.
+- **Deployment note:** the bundled dialect is H2 (`ProviderRepository` `@JdbcRepository(dialect = H2)`); a PostgreSQL deployment points `datasources.default.url` at Postgres and rebuilds with `Dialect.POSTGRES` (only standard CRUD is used, so the SQL is portable).
 
 ### 11.9 Out of scope / notes
 

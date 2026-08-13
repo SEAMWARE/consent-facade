@@ -1,5 +1,6 @@
 package org.fiware.consent.provider;
 
+import io.micronaut.context.annotation.Requires;
 import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 
@@ -22,9 +23,13 @@ import java.util.Optional;
  * <p>A {@link ProviderRegistry#DEFAULT_PROVIDER_KEY default} provider is required, so single-provider
  * deployments (and every deployment before provider-keyed routing is wired) always have a provider
  * to fall back to; its absence is a configuration error and fails fast at startup.
+ *
+ * <p>Active unless the {@link ProviderRegistry#PERSISTENT_PROPERTY persistent} registry is selected,
+ * so the two never both claim the {@link ProviderRegistry} bean.
  */
 @Slf4j
 @Singleton
+@Requires(property = ProviderRegistry.PERSISTENT_PROPERTY, notEquals = "true")
 public class StaticProviderRegistry implements ProviderRegistry {
 
     private final Map<String, ProviderConfig> providersByKey;

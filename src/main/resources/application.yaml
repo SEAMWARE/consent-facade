@@ -73,3 +73,19 @@ facade:
   providers:
     default:
       tmforum-base-url: http://localhost:8080
+  # provider-registry mode (REQUIREMENTS.md §11.8). Default (static): providers come only from the
+  # facade.providers.* config above. Set persistent=true to manage providers at runtime through the
+  # admin /providers API, backed by a database (Micronaut Data JDBC). In persistent mode an empty
+  # table is seeded from facade.providers.* on first start, and a datasources.default must be
+  # configured, e.g.:
+  #   provider-registry:
+  #     persistent: true
+  # datasources:
+  #   default:
+  #     url: jdbc:h2:mem:providers;DB_CLOSE_DELAY=-1   # or a PostgreSQL url (rebuild the repository dialect)
+  #     driver-class-name: org.h2.Driver
+  #     username: sa
+  #     dialect: H2
+  #     schema-generate: CREATE
+  provider-registry:
+    persistent: false

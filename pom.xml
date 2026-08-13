@@ -142,6 +142,24 @@
             <scope>compile</scope>
         </dependency>
 
+        <!-- persistence (only active when the persistent provider registry is enabled,
+             facade.provider-registry.persistent=true; see PersistentProviderRegistry) -->
+        <dependency>
+            <groupId>io.micronaut.data</groupId>
+            <artifactId>micronaut-data-jdbc</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.micronaut.sql</groupId>
+            <artifactId>micronaut-jdbc-hikari</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- logging -->
         <dependency>
             <groupId>org.yaml</groupId>
@@ -448,6 +466,13 @@
                             <groupId>io.micronaut</groupId>
                             <artifactId>micronaut-inject-java</artifactId>
                             <version>${micronaut.core.version}</version>
+                        </path>
+                        <!-- compiles @MappedEntity/@Repository metadata for the persistent
+                             provider registry (Phase 6) -->
+                        <path>
+                            <groupId>io.micronaut.data</groupId>
+                            <artifactId>micronaut-data-processor</artifactId>
+                            <version>${micronaut.data.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

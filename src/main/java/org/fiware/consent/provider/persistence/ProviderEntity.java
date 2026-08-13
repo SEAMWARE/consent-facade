@@ -1,0 +1,24 @@
+package org.fiware.consent.provider.persistence;
+
+import io.micronaut.core.annotation.Nullable;
+import io.micronaut.data.annotation.Id;
+import io.micronaut.data.annotation.MappedEntity;
+import io.micronaut.data.annotation.MappedProperty;
+
+/**
+ * The persisted form of a provider registration (plan §11.8): one row of the {@code provider} table.
+ *
+ * <p>Mirrors {@link org.fiware.consent.provider.ProviderConfig}; the database-backed
+ * {@code PersistentProviderRegistry} maps between the two. The key column is named
+ * {@code provider_key} because {@code key} is a reserved word in most SQL dialects.
+ *
+ * @param key             the provider key (primary key)
+ * @param tmforumBaseUrl  base url of the provider's TM Forum backend
+ * @param selfDescription this provider participant's own self-description URL (nullable)
+ */
+@MappedEntity("provider")
+public record ProviderEntity(
+        @Id @MappedProperty("provider_key") String key,
+        String tmforumBaseUrl,
+        @Nullable String selfDescription) {
+}
