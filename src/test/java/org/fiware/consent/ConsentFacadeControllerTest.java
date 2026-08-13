@@ -142,7 +142,8 @@ class ConsentFacadeControllerTest {
                 .retrieve(HttpRequest.GET("/bilaterals/for/" + base64(CONSUMER_ID) + "?hasSigned=true"), BilateralContractListVO.class);
 
         assertEquals(1, result.getContracts().size(), "The agreement involving the consumer should be projected.");
-        assertEquals("agreement-1", result.getContracts().get(0).getId(), "The contract id is the agreement id.");
+        assertEquals("default~agreement-1", result.getContracts().get(0).getId(),
+                "The contract id is the agreement id scoped to the default provider.");
         assertEquals("signed", result.getContracts().get(0).getStatus(), "The signed agreement maps to a signed contract.");
     }
 
@@ -162,10 +163,36 @@ class ConsentFacadeControllerTest {
                 .thenReturn(Mono.just(HttpResponse.ok(signedAgreement("agreement-1"))));
 
         BilateralContractVO contract = client.toBlocking()
+                .retrieve(HttpRequest.GET("/bilaterals/default~agreement-1"), BilateralContractVO.class);
+
+        assertEquals("default~agreement-1", contract.getId(), "The requested agreement should be projected.");
+        assertEquals(PROVIDER_ID, contract.getDataProvider(), "The data provider should be resolved.");
+    }
+
+    @Test
+    void getBilateralContract_preservesANonDefaultProviderKey() {
+        when(agreementApiClient.retrieveAgreement(eq("agreement-1"), any()))
+                .thenReturn(Mono.just(HttpResponse.ok(signedAgreement("agreement-1"))));
+
+        BilateralContractVO contract = client.toBlocking()
+                .retrieve(HttpRequest.GET("/bilaterals/provider-x~agreement-1"), BilateralContractVO.class);
+
+        assertEquals("provider-x~agreement-1", contract.getId(),
+                "The provider key from the composite contract id is preserved on the round-trip.");
+        assertEquals(PROVIDER_ID, contract.getDataProvider(),
+                "Only the local id is used to look the agreement up in the backend.");
+    }
+
+    @Test
+    void getBilateralContract_resolvesABareLegacyId() {
+        when(agreementApiClient.retrieveAgreement(eq("agreement-1"), any()))
+                .thenReturn(Mono.just(HttpResponse.ok(signedAgreement("agreement-1"))));
+
+        BilateralContractVO contract = client.toBlocking()
                 .retrieve(HttpRequest.GET("/bilaterals/agreement-1"), BilateralContractVO.class);
 
-        assertEquals("agreement-1", contract.getId(), "The requested agreement should be projected.");
-        assertEquals(PROVIDER_ID, contract.getDataProvider(), "The data provider should be resolved.");
+        assertEquals("default~agreement-1", contract.getId(),
+                "A bare id (no provider key) resolves under the default provider.");
     }
 
     @Test
@@ -239,11 +266,11 @@ class ConsentFacadeControllerTest {
                         .productSpecification(new ProductSpecificationRefVO().id("spec-1")))));
 
         ServiceOfferingVO offering = client.toBlocking()
-                .retrieve(HttpRequest.GET("/catalog/serviceofferings/agr-1"), ServiceOfferingVO.class);
+                .retrieve(HttpRequest.GET("/catalog/serviceofferings/default~agr-1"), ServiceOfferingVO.class);
 
         assertEquals(1, offering.getDataResources().size(), "The agreement's single specification is bundled.");
-        assertTrue(offering.getDataResources().get(0).endsWith("/catalog/dataresources/spec-1"),
-                "The data resource points at the specification's facade URL.");
+        assertTrue(offering.getDataResources().get(0).endsWith("/catalog/dataresources/default~spec-1"),
+                "The data resource points at the specification's provider-scoped facade URL.");
     }
 
     @Test

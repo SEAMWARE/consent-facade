@@ -19,6 +19,8 @@ import org.fiware.consent.model.SelfDescriptionVO;
 import org.fiware.consent.model.ServiceOfferingVO;
 import org.fiware.consent.model.SoftwareResourceVO;
 import org.fiware.consent.model.VerificationResultVO;
+import org.fiware.consent.provider.ProviderRegistry;
+import org.fiware.consent.provider.ProviderScopedId;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
 import reactor.core.publisher.Mono;
 
@@ -51,14 +53,19 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     private final AgreementContractMapper agreementContractMapper;
     private final OrganizationSelfDescriptionMapper organizationSelfDescriptionMapper;
     private final CatalogMapper catalogMapper;
+    private final ProviderRegistry providerRegistry;
 
     // ---- contracts -------------------------------------------------------------------
 
     @Override
     public Mono<HttpResponse<BilateralContractListVO>> getBilateralContractsForParticipant(String participantId, Boolean hasSigned) {
         String participantSelfDescriptionId = decodeParticipantId(participantId);
+        // The agreements are read from a single (default) TM Forum backend until per-provider
+        // routing is wired (multi-provider plan, REQUIREMENTS.md §11.6), so the contracts minted here
+        // are scoped to the default provider.
+        String providerKey = defaultProviderKey();
         return repository.findAgreements()
-                .map(agreementContractMapper::toBilateralContract)
+                .map(agreement -> agreementContractMapper.toBilateralContract(agreement, providerKey))
                 .filter(contract -> involvesParticipant(contract, participantSelfDescriptionId))
                 .filter(contract -> !requiresSigned(hasSigned) || agreementContractMapper.isSigned(contract))
                 .collectList()
@@ -68,8 +75,9 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
 
     @Override
     public Mono<HttpResponse<BilateralContractVO>> getBilateralContract(String contractId) {
-        return repository.findAgreementById(contractId)
-                .map(agreementContractMapper::toBilateralContract)
+        ProviderScopedId scopedId = ProviderScopedId.decode(contractId);
+        return repository.findAgreementById(scopedId.localId())
+                .map(agreement -> agreementContractMapper.toBilateralContract(agreement, scopedId.providerKey()))
                 .<HttpResponse<BilateralContractVO>>map(HttpResponse::ok)
                 .defaultIfEmpty(HttpResponse.notFound());
     }
@@ -89,8 +97,9 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     public Mono<HttpResponse<VerificationResultVO>> verifyContract(String providerId, String consumerId) {
         String providerSelfDescriptionId = decodeParticipantId(providerId);
         String consumerSelfDescriptionId = decodeParticipantId(consumerId);
+        String providerKey = defaultProviderKey();
         return repository.findAgreements()
-                .map(agreementContractMapper::toBilateralContract)
+                .map(agreement -> agreementContractMapper.toBilateralContract(agreement, providerKey))
                 .filter(agreementContractMapper::isSigned)
                 .filter(contract -> Objects.equals(contract.getDataProvider(), providerSelfDescriptionId)
                         && Objects.equals(contract.getDataConsumer(), consumerSelfDescriptionId))
@@ -104,18 +113,21 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     @Override
     public Mono<HttpResponse<ServiceOfferingVO>> getServiceOffering(String id) {
         // one contract = one agreement = one service offering bundling all of the agreement's specifications
-        return repository.findAgreementById(id)
+        ProviderScopedId scopedId = ProviderScopedId.decode(id);
+        return repository.findAgreementById(scopedId.localId())
                 .flatMap(agreement -> repository.resolveSpecificationIds(agreement)
                         .collectList()
-                        .map(specificationIds -> catalogMapper.toServiceOffering(id, specificationIds)))
+                        .map(specificationIds -> catalogMapper.toServiceOffering(
+                                scopedId.providerKey(), scopedId.localId(), specificationIds)))
                 .<HttpResponse<ServiceOfferingVO>>map(HttpResponse::ok)
                 .defaultIfEmpty(HttpResponse.notFound());
     }
 
     @Override
     public Mono<HttpResponse<DataResourceVO>> getDataResource(String id) {
-        return repository.findProductSpecificationById(id)
-                .map(catalogMapper::toDataResource)
+        ProviderScopedId scopedId = ProviderScopedId.decode(id);
+        return repository.findProductSpecificationById(scopedId.localId())
+                .map(specification -> catalogMapper.toDataResource(scopedId.providerKey(), specification))
                 .<HttpResponse<DataResourceVO>>map(HttpResponse::ok)
                 .defaultIfEmpty(HttpResponse.notFound());
     }
@@ -123,8 +135,9 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     @Override
     public Mono<HttpResponse<SoftwareResourceVO>> getSoftwareResource(String id) {
         // a software resource is the purpose of a product specification (its id == the spec id)
-        return repository.findProductSpecificationById(id)
-                .map(catalogMapper::toSoftwareResource)
+        ProviderScopedId scopedId = ProviderScopedId.decode(id);
+        return repository.findProductSpecificationById(scopedId.localId())
+                .map(specification -> catalogMapper.toSoftwareResource(scopedId.providerKey(), specification))
                 .<HttpResponse<SoftwareResourceVO>>map(HttpResponse::ok)
                 .defaultIfEmpty(HttpResponse.notFound());
     }
@@ -133,13 +146,24 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
 
     @Override
     public Mono<HttpResponse<SelfDescriptionVO>> getParticipantSelfDescription(String id) {
-        return repository.findOrganizationById(id)
+        // Participant self-description URLs are not provider-scoped yet (minted at registration,
+        // multi-provider plan §11.7); decode tolerates both the composite and the bare form.
+        ProviderScopedId scopedId = ProviderScopedId.decode(id);
+        return repository.findOrganizationById(scopedId.localId())
                 .map(organizationSelfDescriptionMapper::toSelfDescription)
                 .<HttpResponse<SelfDescriptionVO>>map(HttpResponse::ok)
                 .defaultIfEmpty(HttpResponse.notFound());
     }
 
     // ---- helpers ---------------------------------------------------------------------
+
+    /**
+     * Key of the provider whose backend the facade currently reads from. Until per-request routing
+     * (multi-provider plan §11.6) is wired, everything is served from the default provider.
+     */
+    private String defaultProviderKey() {
+        return providerRegistry.defaultProvider().key();
+    }
 
     private static boolean involvesParticipant(BilateralContractVO contract, String participantSelfDescriptionId) {
         return Objects.equals(contract.getDataProvider(), participantSelfDescriptionId)

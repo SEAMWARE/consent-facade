@@ -82,19 +82,20 @@ public class CatalogMapper {
      * purpose), so the consent-manager can read {@code dataResources} off the contract's
      * {@code serviceOffering} and {@code softwareResources} off its {@code purpose[]}.
      *
-     * @param serviceOfferingId the service-offering id (the agreement id)
-     * @param specificationIds  the ids of the product specifications backing the agreement
+     * @param providerKey       key of the provider owning the offering (woven into every URL)
+     * @param serviceOfferingId the backend-local service-offering id (the agreement id)
+     * @param specificationIds  the backend-local ids of the product specifications backing the agreement
      * @return the service offering
      */
-    public ServiceOfferingVO toServiceOffering(String serviceOfferingId, List<String> specificationIds) {
+    public ServiceOfferingVO toServiceOffering(String providerKey, String serviceOfferingId, List<String> specificationIds) {
         List<String> dataResourceUrls = specificationIds.stream()
-                .map(catalogUrls::dataResource)
+                .map(specificationId -> catalogUrls.dataResource(providerKey, specificationId))
                 .toList();
         List<String> softwareResourceUrls = specificationIds.stream()
-                .map(catalogUrls::softwareResource)
+                .map(specificationId -> catalogUrls.softwareResource(providerKey, specificationId))
                 .toList();
         return new ServiceOfferingVO()
-                .atId(catalogUrls.serviceOffering(serviceOfferingId))
+                .atId(catalogUrls.serviceOffering(providerKey, serviceOfferingId))
                 .atType(SERVICE_OFFERING_TYPE)
                 .dataResources(dataResourceUrls)
                 .softwareResources(softwareResourceUrls)
@@ -106,15 +107,16 @@ public class CatalogMapper {
      * provider self-description ({@code facade.provider.self-description}) and {@code containsPII} is
      * always {@code true} - both are required by the Prometheus-X data-resource model.
      *
+     * @param providerKey   key of the provider owning the specification (woven into the @id URL)
      * @param specification the product specification
      * @return the data resource, or {@code null} if {@code specification} is {@code null}
      */
-    public DataResourceVO toDataResource(ProductSpecificationVO specification) {
+    public DataResourceVO toDataResource(String providerKey, ProductSpecificationVO specification) {
         if (specification == null) {
             return null;
         }
         return new DataResourceVO()
-                .atId(catalogUrls.dataResource(specification.getId()))
+                .atId(catalogUrls.dataResource(providerKey, specification.getId()))
                 .atType(DATA_RESOURCE_TYPE)
                 .name(specification.getName())
                 .description(specification.getDescription())
@@ -128,10 +130,11 @@ public class CatalogMapper {
      * {@code purpose} characteristic (§0.2); when the specification carries none, the specification
      * name is used so the consent-manager still records a (non-null) purpose.
      *
+     * @param providerKey   key of the provider owning the specification (woven into the @id URL)
      * @param specification the product specification
      * @return the software resource, or {@code null} if {@code specification} is {@code null}
      */
-    public SoftwareResourceVO toSoftwareResource(ProductSpecificationVO specification) {
+    public SoftwareResourceVO toSoftwareResource(String providerKey, ProductSpecificationVO specification) {
         if (specification == null) {
             return null;
         }
@@ -140,7 +143,7 @@ public class CatalogMapper {
                 .filter(name -> !name.isBlank())
                 .orElseGet(specification::getName);
         return new SoftwareResourceVO()
-                .atId(catalogUrls.softwareResource(specification.getId()))
+                .atId(catalogUrls.softwareResource(providerKey, specification.getId()))
                 .atType(SOFTWARE_RESOURCE_TYPE)
                 .name(purposeName)
                 .description(asString(purpose.get(PURPOSE_DESCRIPTION_KEY)));

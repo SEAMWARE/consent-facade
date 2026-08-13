@@ -393,13 +393,16 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
 - Package `org.fiware.consent.provider`; unit-tested in `StaticProviderRegistryTest`. No behaviour change (nothing routes through the registry yet — that is Phase 4).
 - Deferred to Phase 2/4: `byParticipantSelfDescription(sdUrl)` (needs the provider-keyed SD-URL scheme first).
 
-### 11.4 Phase 2 — Provider-keyed identifier scheme (API-affecting)
+### 11.4 Phase 2 — Provider-keyed identifier scheme — **implemented**
 
-- `CatalogUrls`: add a provider segment → `…/catalog/serviceofferings/{providerKey}/{id}` (and dataresources/softwareresources), plus a parser.
-- Participant SD URLs → `…/participants/{providerKey}/{orgId}`; the facade serves that shape and **registration must set it** (§11.7).
-- Contract `_id`/`uid` → composite `{providerKey}:{agreementId}`, parsed on `/bilaterals/{id}` and `/contracts/{id}`.
-- Update `api/consent-facade.yaml` path templates to carry `{providerKey}` and regenerate the server interfaces.
-- Because a bilateral contract's `dataProvider`/`dataConsumer` **are** the SD URLs and its `serviceOffering`/`purpose[]` **are** the catalog URLs, the provider key propagates through the whole graph for free.
+**Refinement over the original sketch:** the provider key is encoded as a **composite single path segment** `providerKey~localId` (a `ProviderScopedId`), *not* as an extra path segment `…/{providerKey}/{id}`. This keeps every API path a single `{id}` variable, so **`api/consent-facade.yaml` is unchanged and nothing is regenerated** — the composite is purely the facade's own encode/decode. Separator is `~` (URL-safe, RFC 3986 unreserved) rather than `:`, because the FIWARE TM Forum API mints `urn:ngsi-ld:…` ids that are full of colons; `~` appears in neither those ids nor provider-key slugs, and decode splits on the *first* `~` so colon-laden local ids survive.
+
+- `org.fiware.consent.provider.ProviderScopedId` (record + `encode()`/`decode()`): the wire form; a bare id (no `~`) decodes to the `default` provider, so ids minted before this scheme keep resolving.
+- `CatalogUrls`: `serviceOffering`/`dataResource`/`softwareResource` now take `(providerKey, localId)` and mint `…/catalog/<kind>/{providerKey}~{localId}`.
+- Contract `_id`/`uid` → `{providerKey}~{agreementId}`; `getBilateralContract`/`getServiceOffering`/`getDataResource`/`getSoftwareResource` decode the incoming id, look the backend up by the **local** id, and re-mint with the **same** key (so a non-default key round-trips; a bare legacy id resolves under `default`).
+- Because a contract's `dataProvider`/`dataConsumer` **are** the SD URLs and its `serviceOffering`/`purpose[]` **are** the catalog URLs, the provider key propagates through the whole graph for free.
+- Still Phase 5: **participant** SD URLs stay bare (they are minted at registration, §11.7); `getParticipantSelfDescription` already decodes tolerantly so Phase 5 is a pure minting change.
+- Minting still stamps the `default` key everywhere (single backend until Phase 4). Covered by `ProviderScopedIdTest` + updated mapper/controller tests.
 
 ### 11.5 Phase 3 — Per-provider TM Forum access (main technical spike)
 
@@ -409,7 +412,7 @@ So the `/for` + `/verify` calls already name the provider; the resource endpoint
 
 ### 11.6 Phase 4 — Route each endpoint by provider
 
-- Each controller method: extract `providerKey` (participant id for `/for`+`/verify`; URL segment for catalog/participants; composite id for `/bilaterals/{id}`) → `ProviderRegistry.byKey` → `TMForumClientFactory` → per-provider repository → existing mappers. Mappers/`CatalogUrls` are provider-aware from Phase 2.
+- Each controller method already extracts the `providerKey`: from the base64 participant SD URL on `/for`+`/verify`, and from the `ProviderScopedId` composite on `/bilaterals/{id}` + all `/catalog/*` (Phase 2). Phase 4 turns that key into a backend: `ProviderRegistry.byKey` → `TMForumClientFactory` → per-provider repository → existing (already provider-aware) mappers. The `/for`+`/verify` endpoints, which currently read a single backend, fan out across `ProviderRegistry.all()`.
 - Unknown/unregistered provider key → `404`/`Problem`.
 
 ### 11.7 Phase 5 — Provider-aware registration

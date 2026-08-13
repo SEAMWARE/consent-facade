@@ -8,6 +8,7 @@ import org.fiware.consent.model.BilateralContractVO;
 import org.fiware.consent.model.OdrlPolicyVO;
 import org.fiware.consent.model.OdrlRuleVO;
 import org.fiware.consent.model.PurposeVO;
+import org.fiware.consent.provider.ProviderScopedId;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
 import org.fiware.consent.tmforum.TMForumBackedRepository.AgreementCharacteristic;
 import org.fiware.consent.tmforum.TMForumBackedRepository.EngagedPartyRole;
@@ -89,22 +90,30 @@ public class AgreementContractMapper {
     }
 
     /**
-     * Maps an agreement into a bilateral contract.
+     * Maps an agreement into a bilateral contract, scoped to the provider whose TM Forum backend the
+     * agreement was read from.
      *
-     * @param agreement the TM Forum agreement
+     * <p>The {@code providerKey} is woven into the contract's {@code _id}/{@code uid} and into every
+     * catalog URL the contract points at, so that when the consent-manager dereferences those URLs or
+     * re-fetches the contract by id, the facade can route back to the same backend (multi-provider
+     * plan, {@code REQUIREMENTS.md} §11.4).
+     *
+     * @param agreement   the TM Forum agreement
+     * @param providerKey key of the provider owning the agreement
      * @return the bilateral contract, or {@code null} if {@code agreement} is {@code null}
      */
-    public BilateralContractVO toBilateralContract(AgreementVO agreement) {
+    public BilateralContractVO toBilateralContract(AgreementVO agreement, String providerKey) {
         if (agreement == null) {
             return null;
         }
         // The single service offering carries both the data (dataResources) and the purposes
         // (softwareResources); the contract points both serviceOffering and purpose[].purpose at it,
         // so the consent-manager can build a privacy notice with non-empty data AND purposes.
-        String serviceOfferingUrl = catalogUrls.serviceOffering(agreement.getId());
+        String serviceOfferingUrl = catalogUrls.serviceOffering(providerKey, agreement.getId());
+        String contractId = ProviderScopedId.of(providerKey, agreement.getId()).encode();
         return new BilateralContractVO()
-                .id(agreement.getId())
-                .uid(agreement.getId())
+                .id(contractId)
+                .uid(contractId)
                 .profile(agreement.getId())
                 .status(toContractStatus(agreement))
                 .dataProvider(participantId(agreement, AgreementCharacteristic.PROVIDER_ID, EngagedPartyRole.PROVIDER))

@@ -27,6 +27,7 @@ class CatalogMapperTest {
     private static final String SELF_URL = "http://facade.example";
     private static final String PROVIDER_SD = "did:web:provider.example";
     private static final String PURPOSE_CHARACTERISTIC = "purpose";
+    private static final String PROVIDER_KEY = "provider-x";
 
     private final FacadeProperties facadeProperties = facadeProperties();
     private final CatalogMapper mapper =
@@ -41,25 +42,27 @@ class CatalogMapperTest {
 
     @Test
     void toServiceOffering_bundlesSpecificationsAsDataAndSoftwareResources() {
-        ServiceOfferingVO offering = mapper.toServiceOffering("agr-1", List.of("spec-1", "spec-2"));
+        ServiceOfferingVO offering = mapper.toServiceOffering(PROVIDER_KEY, "agr-1", List.of("spec-1", "spec-2"));
 
-        assertEquals(SELF_URL + "/catalog/serviceofferings/agr-1", offering.getAtId(),
-                "The offering @id is this facade's service-offering URL for the agreement.");
+        assertEquals(SELF_URL + "/catalog/serviceofferings/" + PROVIDER_KEY + "~agr-1", offering.getAtId(),
+                "The offering @id is this facade's provider-scoped service-offering URL for the agreement.");
         assertEquals("ServiceOffering", offering.getAtType(), "The offering carries its @type.");
         assertEquals(
-                List.of(SELF_URL + "/catalog/dataresources/spec-1", SELF_URL + "/catalog/dataresources/spec-2"),
+                List.of(SELF_URL + "/catalog/dataresources/" + PROVIDER_KEY + "~spec-1",
+                        SELF_URL + "/catalog/dataresources/" + PROVIDER_KEY + "~spec-2"),
                 offering.getDataResources(),
-                "Every specification becomes one data-resource URL (the data).");
+                "Every specification becomes one provider-scoped data-resource URL (the data).");
         assertEquals(
-                List.of(SELF_URL + "/catalog/softwareresources/spec-1", SELF_URL + "/catalog/softwareresources/spec-2"),
+                List.of(SELF_URL + "/catalog/softwareresources/" + PROVIDER_KEY + "~spec-1",
+                        SELF_URL + "/catalog/softwareresources/" + PROVIDER_KEY + "~spec-2"),
                 offering.getSoftwareResources(),
-                "Every specification becomes one software-resource URL (the purpose).");
+                "Every specification becomes one provider-scoped software-resource URL (the purpose).");
         assertEquals(Boolean.TRUE, offering.getUserInteraction(), "Granting consent requires user interaction.");
     }
 
     @Test
     void toServiceOffering_withoutSpecificationsHasEmptyResources() {
-        ServiceOfferingVO offering = mapper.toServiceOffering("agr-1", List.of());
+        ServiceOfferingVO offering = mapper.toServiceOffering(PROVIDER_KEY, "agr-1", List.of());
 
         assertTrue(offering.getDataResources().isEmpty(), "An agreement without specifications bundles no data resources.");
         assertTrue(offering.getSoftwareResources().isEmpty(), "An agreement without specifications bundles no software resources.");
@@ -70,9 +73,10 @@ class CatalogMapperTest {
         ProductSpecificationVO specification = new ProductSpecificationVO()
                 .id("spec-1").name("Customer profile").description("The customer's profile data");
 
-        DataResourceVO dataResource = mapper.toDataResource(specification);
+        DataResourceVO dataResource = mapper.toDataResource(PROVIDER_KEY, specification);
 
-        assertEquals(SELF_URL + "/catalog/dataresources/spec-1", dataResource.getAtId(), "The data-resource @id is its facade URL.");
+        assertEquals(SELF_URL + "/catalog/dataresources/" + PROVIDER_KEY + "~spec-1", dataResource.getAtId(),
+                "The data-resource @id is its provider-scoped facade URL.");
         assertEquals("DataResource", dataResource.getAtType(), "The data resource carries its @type.");
         assertEquals("Customer profile", dataResource.getName(), "The name comes from the specification.");
         assertEquals("The customer's profile data", dataResource.getDescription(), "The description comes from the specification.");
@@ -82,7 +86,7 @@ class CatalogMapperTest {
 
     @Test
     void toDataResource_returnsNullForNullSpecification() {
-        assertNull(mapper.toDataResource(null), "A null specification maps to a null data resource.");
+        assertNull(mapper.toDataResource(PROVIDER_KEY, null), "A null specification maps to a null data resource.");
     }
 
     @Test
@@ -90,9 +94,10 @@ class CatalogMapperTest {
         ProductSpecificationVO specification = specificationWithPurpose(
                 Map.of("id", "svc-provision", "name", "Service provision", "description", "Deliver the service"));
 
-        SoftwareResourceVO softwareResource = mapper.toSoftwareResource(specification);
+        SoftwareResourceVO softwareResource = mapper.toSoftwareResource(PROVIDER_KEY, specification);
 
-        assertEquals(SELF_URL + "/catalog/softwareresources/spec-1", softwareResource.getAtId(), "The software-resource @id is its facade URL.");
+        assertEquals(SELF_URL + "/catalog/softwareresources/" + PROVIDER_KEY + "~spec-1", softwareResource.getAtId(),
+                "The software-resource @id is its provider-scoped facade URL.");
         assertEquals("SoftwareResource", softwareResource.getAtType(), "The software resource carries its @type.");
         assertEquals("Service provision", softwareResource.getName(), "The name is the purpose name - the consent purpose.");
         assertEquals("Deliver the service", softwareResource.getDescription(), "The description comes from the purpose.");
@@ -102,7 +107,7 @@ class CatalogMapperTest {
     void toSoftwareResource_acceptsAPlainStringPurposeValue() {
         ProductSpecificationVO specification = specificationWithPurpose("Service provision");
 
-        assertEquals("Service provision", mapper.toSoftwareResource(specification).getName(),
+        assertEquals("Service provision", mapper.toSoftwareResource(PROVIDER_KEY, specification).getName(),
                 "A plain-string purpose characteristic value is taken as the purpose name.");
     }
 
@@ -110,13 +115,13 @@ class CatalogMapperTest {
     void toSoftwareResource_fallsBackToSpecificationNameWhenNoPurpose() {
         ProductSpecificationVO specification = new ProductSpecificationVO().id("spec-1").name("Customer profile");
 
-        assertEquals("Customer profile", mapper.toSoftwareResource(specification).getName(),
+        assertEquals("Customer profile", mapper.toSoftwareResource(PROVIDER_KEY, specification).getName(),
                 "Without a purpose characteristic the specification name is used so the purpose is non-null.");
     }
 
     @Test
     void toSoftwareResource_returnsNullForNullSpecification() {
-        assertNull(mapper.toSoftwareResource(null), "A null specification maps to a null software resource.");
+        assertNull(mapper.toSoftwareResource(PROVIDER_KEY, null), "A null specification maps to a null software resource.");
     }
 
     private static ProductSpecificationVO specificationWithPurpose(Object value) {
