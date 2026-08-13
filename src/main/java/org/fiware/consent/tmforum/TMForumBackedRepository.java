@@ -7,11 +7,18 @@ import jakarta.inject.Singleton;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.fiware.consent.tmforum.agreement.api.AgreementApiClient;
+import org.fiware.consent.tmforum.agreement.model.AgreementItemVO;
 import org.fiware.consent.tmforum.agreement.model.AgreementVO;
 import org.fiware.consent.tmforum.agreement.model.CharacteristicVO;
 import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
 import org.fiware.consent.tmforum.party.api.OrganizationApiClient;
 import org.fiware.consent.tmforum.party.model.OrganizationVO;
+import org.fiware.consent.tmforum.productcatalog.api.ProductOfferingApiClient;
+import org.fiware.consent.tmforum.productcatalog.api.ProductSpecificationApiClient;
+import org.fiware.consent.tmforum.productcatalog.model.ProductOfferingVO;
+import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
+import org.fiware.consent.tmforum.productinventory.api.ProductApiClient;
+import org.fiware.consent.tmforum.productinventory.model.ProductVO;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -24,10 +31,16 @@ import java.util.Optional;
  * domain-oriented access point to the two back-end APIs it reads from:
  *
  * <ul>
- *   <li>the <em>party-catalog</em> API (organizations - the participant self-descriptions), and</li>
+ *   <li>the <em>party-catalog</em> API (organizations - the participant self-descriptions),</li>
  *   <li>the <em>agreement</em> API (the contracts, each carrying the ODRL contract policy as a
- *       {@code policy} characteristic).</li>
+ *       {@code policy} characteristic),</li>
+ *   <li>the <em>product-catalog</em> API (product offerings and their specifications), and</li>
+ *   <li>the <em>product-inventory</em> API (the product instances materialized from an order).</li>
  * </ul>
+ *
+ * <p>Beyond simple lookups it offers {@link #resolveSpecifications(AgreementVO)}, which walks the
+ * native TM Forum references from an agreement to the product specification(s) that back it - the
+ * specification being the object that corresponds to a data resource.
  *
  * <p>The agreements this repository reads are the ones produced by the EDC TM Forum extension
  * ({@code org.seamware.edc.store.TMFEdcMapper#toAgreement}): the contract policy and the
@@ -63,6 +76,9 @@ public class TMForumBackedRepository {
 
     private final AgreementApiClient agreementApiClient;
     private final OrganizationApiClient organizationApiClient;
+    private final ProductOfferingApiClient productOfferingApiClient;
+    private final ProductSpecificationApiClient productSpecificationApiClient;
+    private final ProductApiClient productApiClient;
 
     // ---- agreements ------------------------------------------------------------------
 
@@ -149,6 +165,106 @@ public class TMForumBackedRepository {
         return organizationApiClient.listOrganization(ALL_FIELDS, offset, limit)
                 .map(HttpResponse::body)
                 .flatMapMany(TMForumBackedRepository::fluxFromNullable);
+    }
+
+    // ---- product catalog / inventory -------------------------------------------------
+
+    /**
+     * Retrieves a single product offering by its TM Forum id.
+     *
+     * @param id the product-offering id
+     * @return the product offering, or an empty {@link Mono} if none with that id exists
+     */
+    public Mono<ProductOfferingVO> findProductOfferingById(String id) {
+        return productOfferingApiClient.retrieveProductOffering(id, ALL_FIELDS)
+                .map(HttpResponse::body)
+                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+    }
+
+    /**
+     * Retrieves a single product specification by its TM Forum id.
+     *
+     * @param id the product-specification id
+     * @return the product specification, or an empty {@link Mono} if none with that id exists
+     */
+    public Mono<ProductSpecificationVO> findProductSpecificationById(String id) {
+        return productSpecificationApiClient.retrieveProductSpecification(id, ALL_FIELDS)
+                .map(HttpResponse::body)
+                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+    }
+
+    /**
+     * Retrieves a single (inventory) product by its TM Forum id.
+     *
+     * @param id the product id
+     * @return the product, or an empty {@link Mono} if none with that id exists
+     */
+    public Mono<ProductVO> findProductById(String id) {
+        return productApiClient.retrieveProduct(id, ALL_FIELDS)
+                .map(HttpResponse::body)
+                .onErrorResume(TMForumBackedRepository::emptyOnNotFound);
+    }
+
+    /**
+     * Resolves the product specification(s) an agreement is about, following the native TM Forum
+     * references. An agreement's {@link AgreementItemVO agreement items} refer to product offerings
+     * (the primary reference) and, optionally, to product instances; both carry a product
+     * specification:
+     *
+     * <pre>
+     *   agreement.agreementItem[].productOffering[] -&gt; ProductOffering.productSpecification -&gt; ProductSpecification
+     *   agreement.agreementItem[].product[]         -&gt; Product.productSpecification          -&gt; ProductSpecification
+     * </pre>
+     *
+     * <p>Both paths are followed and their results de-duplicated by specification id, so an
+     * agreement referring to an offering, a product, or both resolves to the same specification
+     * once. The specification is the object that corresponds to a data resource.
+     *
+     * @param agreement the agreement to resolve
+     * @return the distinct product specifications backing the agreement (empty if it references none)
+     */
+    public Flux<ProductSpecificationVO> resolveSpecifications(AgreementVO agreement) {
+        return resolveSpecificationIds(agreement)
+                .flatMap(this::findProductSpecificationById);
+    }
+
+    /**
+     * Resolves the ids of the product specification(s) an agreement is about, following the same
+     * native references as {@link #resolveSpecifications(AgreementVO)} but stopping at the ids -
+     * useful when only the specification ids (e.g. to build data-resource URLs) are needed, without
+     * fetching each specification body.
+     *
+     * @param agreement the agreement to resolve
+     * @return the distinct product-specification ids backing the agreement (empty if it references none)
+     */
+    public Flux<String> resolveSpecificationIds(AgreementVO agreement) {
+        if (agreement == null) {
+            return Flux.empty();
+        }
+        List<AgreementItemVO> agreementItems = Optional.ofNullable(agreement.getAgreementItem()).orElse(List.of());
+
+        Flux<String> specificationIdsFromOfferings = Flux.fromIterable(agreementItems)
+                .flatMapIterable(item -> Optional.ofNullable(item.getProductOffering()).orElse(List.of()))
+                .map(offeringRef -> offeringRef.getId())
+                .filter(Objects::nonNull)
+                .flatMap(this::findProductOfferingById)
+                .map(ProductOfferingVO::getProductSpecification)
+                .filter(Objects::nonNull)
+                .map(specificationRef -> specificationRef.getId())
+                .filter(Objects::nonNull);
+
+        Flux<String> specificationIdsFromProducts = Flux.fromIterable(agreementItems)
+                .flatMapIterable(item -> Optional.ofNullable(item.getProduct()).orElse(List.of()))
+                .map(productRef -> productRef.getId())
+                .filter(Objects::nonNull)
+                .flatMap(this::findProductById)
+                .map(ProductVO::getProductSpecification)
+                .filter(Objects::nonNull)
+                .map(specificationRef -> specificationRef.getId())
+                .filter(Objects::nonNull);
+
+        return Flux.merge(specificationIdsFromOfferings, specificationIdsFromProducts)
+                .distinct();
     }
 
     // ---- agreement helpers -----------------------------------------------------------

@@ -12,6 +12,51 @@ with the DSC.
 
 ---
 
+## 0. Design decisions & current status (authoritative — read first)
+
+These supersede any conflicting detail below (§6 in particular predates the design pivot).
+
+1. **Source model = TM Forum `Agreement`, not `ProductOrder`.** A bilateral contract is projected from the
+   EDC-written TM Forum **Agreement** (characteristics `policy`, `asset-id`, `provider-id`, `consumer-id`,
+   `signing-date`; engaged-party roles `Provider`/`Consumer`), resolving `agreementItem → productOffering →
+   productSpecification` (and `→ product → productSpecification`) for the catalog graph. The generated `ProductOrder`
+   client is **unused** and should be removed. §6's `ProductOrder → BilateralContract` mapping is **superseded** by this.
+
+2. **Purpose is modelled on the `ProductSpecification` as a characteristic.** The provider authors it where it defines
+   the data product. A well-known `productSpecCharacteristic` (name configurable, default `purpose`) carries **one**
+   structured value (matching decision 3):
+
+   ```jsonc
+   { "name": "purpose", "valueType": "object", "productSpecCharacteristicValue": [ { "value": {
+       "id":          "profile-service-provision",              // stable → softwareResource / purpose-offering URL
+       "name":        "Personal profile for service provision", // REQUIRED → softwareResource.name → consent purpose
+       "description": "Use the subject's profile to deliver the requested service.",
+       "purpose":     "https://w3id.org/dpv#ServiceProvision",  // optional DPV purpose (forward-compat receipts)
+       "legalBasis":  "https://w3id.org/dpv#Consent"            // optional DPV legal basis
+   } } ] }
+   ```
+   Only `name` is read by today's consent-manager (→ `softwareResource.name` → `privacyNotice.purposes[].purpose`);
+   `id` drives the stable URLs; the rest is DPV/ISO-27560 richness for later receipts. If the DSC `tm-forum-api`
+   rejects object-typed characteristic values, store `value` as a JSON string the facade parses, or flatten into
+   sibling string characteristics (`purpose`, `purpose.dpv`, `purpose.legalBasis`). The facade reads this once per
+   spec and emits the data-offering URL, the purpose-offering URL and the software-resource URL deterministically from
+   the spec id (consistency invariant, §6).
+
+3. **Granularity = 1 `ProductSpecification` = 1 `DataResource`** → one all-or-nothing `Consent`. Finer per-item/field
+   decomposition (§5) is deferred.
+
+4. **What the DSC actually exercises today.** The DSC's current consent flow **seeds the `Consent` directly in Mongo**
+   (`consent_grant.sh`) and enforces it via the two-call check (`identifier/search` + `GET
+   /consents/participants/{id}?receipt=true`). That path only dereferences participant self-descriptions, so **only
+   `GET /participants/{id}` is called today**. The contract endpoints (`/bilaterals/*`, `/contracts/*`, `/verify`)
+   and **all** `/catalog/*` endpoints are exercised **only** by the consent-manager's give-consent / privacy-notice
+   APIs — i.e. by the *real* give/withdraw flow that replaces the direct-Mongo seed. Completing them (this document's
+   remaining work) is the enabler for that flow; it does not change the current seeded demo. The acceptance test is
+   therefore "the consent-manager builds a privacy notice with non-empty `data` **and** `purposes`, then
+   `giveConsent` succeeds" — not the current demo.
+
+---
+
 ## 1. Purpose & context
 
 The consent-manager derives its **privacy notices** and **consents** from a *contract service*, configured through its
@@ -185,7 +230,12 @@ describe the data's fields/attributes. There is **no field/attribute schema anyw
 
 Map the TM Forum world into the contract/catalog shapes above.
 
-* **`ProductOrder` → `BilateralContract`** (`/bilaterals/for/{providerId}`, `/bilaterals/{id}`)
+> ⚠️ **Superseded by §0.1:** the implementation projects the **`Agreement`** (not `ProductOrder`) into a
+> `BilateralContract`. The `ProductOrder → BilateralContract` bullet below is kept for historical context only; read
+> `dataProvider`/`dataConsumer`/`status`/`_id` from the Agreement's characteristics + engaged parties instead. The
+> `ProductSpecification`/catalog rules and the **consistency invariant** below still apply as written.
+
+* **`ProductOrder` → `BilateralContract`** *(superseded — use `Agreement`)* (`/bilaterals/for/{providerId}`, `/bilaterals/{id}`)
   * `dataProvider` = the provider participant self-description id.
   * `dataConsumer` = the ordering org's self-description id (order `relatedParty` → Organization → its `did`).
   * `serviceOffering` = a facade catalog URL for the ordered offering (see invariant below).
@@ -233,8 +283,26 @@ Built and green (`mvn clean verify`, JDK 21, Micronaut 4). Structure mirrors `fi
 * **TM Forum clients** generated into `org.fiware.consent.tmforum.{productorder,productcatalog,party,agreement}.*`,
   surfaced to the facade through `tmforum/TMForumBackedRepository` (organizations + agreements; an agreement carries
   the ODRL contract policy as its `policy` characteristic, written by the EDC extension's `TMFEdcMapper#toAgreement`).
-* **`facade/ConsentFacadeController.java`** — implements `ContractsApi`, `CatalogApi`, `ParticipantsApi`. **Scaffold only:**
-  list endpoints return empty results, single lookups return `404`. **This is where the projection is wired in.**
+* **`facade/ConsentFacadeController.java`** — implements `ContractsApi`, `CatalogApi`, `ParticipantsApi`. **No longer
+  scaffold** (this §8 note is historical): `/participants/{id}`, `/bilaterals/for/{id}` + `/bilaterals/{id}`, `/verify`,
+  `/catalog/serviceofferings`, `/catalog/dataresources` and `/catalog/softwareresources` are implemented
+  (Agreement-backed). Ecosystem `/contracts/*` stays empty (§3.2).
+* **Purpose chain — done (DSC roadmap item 3, W1–W4):** `AgreementContractMapper` sets `purpose[]` (pointing at the same
+  offering URL) and `profile`; the offering carries `dataResources`, `softwareResources` and `userInteraction`;
+  `/catalog/softwareresources/{specId}` returns `{name}` read from the spec's `purpose` characteristic (§0.2, name
+  configurable via `facade.spec.purpose-characteristic`); `DataResource` carries the required `producedBy`
+  (`facade.provider.self-description`) and `containsPII`. Covered by the mapper/controller unit tests.
+* **Policy ↔ offering consistency — done.** `AgreementContractMapper` retargets every permission/prohibition rule's
+  `target` to the contract's service-offering URL, so the consent-manager's
+  `getDataFromPoliciesInBilateralContract` containment check (`serviceOffering.includes(target)`, §3.1) matches and the
+  derived privacy notice carries non-empty `data`. (The EDC writes asset URNs; the consent-manager expects a
+  service-offering URL, so this is the correct projection, not a workaround.) Covered by the mapper unit test.
+* **Still open (the "actual catalog endpoints" pass):**
+  1. Richer `DataResource`/`ServiceOffering` (representation/exposedThrough/category/policy; offering name/description/
+     providedBy) and the granularity mapping (§5, kept 1 spec = 1 resource for now).
+  2. Full agreement pagination + server-side party filtering (today the first 100 agreements only).
+  3. An integration test against a real consent-manager (§8 next-step 6) — the end-to-end proof that a seeded agreement
+     yields a privacy notice with non-empty `data` **and** `purposes` and a successful `giveConsent`.
 * **`configuration/FacadeProperties.java`** — `facade.self-url`, `facade.provider/consumer.self-description`,
   `facade.party.did-characteristic`.
 * Empty package slots to fill: **`tmforum/`** (adapters over the generated clients), **`mapping/`** (hand-written
@@ -289,3 +357,71 @@ Prometheus-X catalog: `github.com/Prometheus-X-association/catalog-api` →
 
 DSC POC (reference implementation this replaces):
 `data-space-connector/charts/data-space-connector/files/contract-facade/{facade.js,mapping.js}`.
+
+---
+
+## 11. Multi-provider support (plan)
+
+A data space has **many providers**, each with its **own TM Forum backend** (`tm-forum-api`). One consent-facade (at `CONTRACT_SERVICE_BASE_URL`) must therefore serve contracts/catalog/participants across all of them and route every request to the right provider's TM Forum endpoint. **The consent-manager needs no changes** — it only ever calls the facade with identifiers the facade itself minted (§2), so the facade can carry the provider in them.
+
+### 11.1 How the provider is known per request
+
+| Facade endpoint | Provider on the wire today? | Source of the provider key |
+|---|---|---|
+| `GET /bilaterals/for/{participantId}` | **yes** | `participantId` = base64(provider SD URL) → decode → provider key |
+| `GET /contracts/for/{participantId}` | yes | same |
+| `GET /verify/{providerId}/{consumerId}` | yes | `providerId` = base64(provider SD URL) |
+| `GET /participants/{id}` | via URL the facade minted | provider-key segment in the SD URL (§11.4) |
+| `GET /catalog/serviceofferings\|dataresources\|softwareresources/{id}` | via URL the facade minted | provider-key segment in the catalog URL (§11.4) |
+| `GET /bilaterals/{contractId}` \| `/contracts/{contractId}` | via id the facade minted | composite id `{providerKey}:{agreementId}` (§11.4) |
+
+So the `/for` + `/verify` calls already name the provider; the resource endpoints don't yet, but the facade authors those ids/URLs and can encode the provider into them.
+
+### 11.2 Design principles
+
+1. **`providerKey` is a first-class part of every facade-minted identifier** — participant SD URLs, catalog URLs, and composite contract ids. URL-safe, stable (e.g. a slug or the provider's org id / DID).
+2. **A `ProviderRegistry` abstraction** resolves `providerKey → ProviderConfig{ tmforumBaseUrl, … }`. Swappable implementation: **static config first**, **DB + admin API later**.
+3. **A `TMForumClientFactory`** produces per-provider TM Forum access at runtime (keyed by endpoint, cached).
+4. **Backward compatible** — a single `default` provider entry keeps today's single-endpoint behaviour working.
+
+### 11.3 Phase 1 — Provider registry abstraction + static config (foundation)
+
+- `ProviderConfig` (record): `key`, `tmforumBaseUrl` (+ later `didCharacteristic`, `purposeCharacteristic`, auth).
+- `ProviderRegistry` (interface): `Optional<ProviderConfig> byKey(String)`, `Optional<ProviderConfig> byParticipantSelfDescription(String sdUrl)`, `Collection<ProviderConfig> all()`.
+- `StaticProviderRegistry` backed by new config `facade.providers` (map `key → { tmforum-base-url }`) in `FacadeProperties`.
+- Migrate the current single endpoint into a `default` provider entry; no behaviour change yet.
+
+### 11.4 Phase 2 — Provider-keyed identifier scheme (API-affecting)
+
+- `CatalogUrls`: add a provider segment → `…/catalog/serviceofferings/{providerKey}/{id}` (and dataresources/softwareresources), plus a parser.
+- Participant SD URLs → `…/participants/{providerKey}/{orgId}`; the facade serves that shape and **registration must set it** (§11.7).
+- Contract `_id`/`uid` → composite `{providerKey}:{agreementId}`, parsed on `/bilaterals/{id}` and `/contracts/{id}`.
+- Update `api/consent-facade.yaml` path templates to carry `{providerKey}` and regenerate the server interfaces.
+- Because a bilateral contract's `dataProvider`/`dataConsumer` **are** the SD URLs and its `serviceOffering`/`purpose[]` **are** the catalog URLs, the provider key propagates through the whole graph for free.
+
+### 11.5 Phase 3 — Per-provider TM Forum access (main technical spike)
+
+- **Problem:** the generated TM Forum clients are declarative `@Client(id=…)` beans bound to a **compile-time** service URL, so they cannot target a per-request base URL.
+- **Approach:** a `TMForumClientFactory` that, given a `ProviderConfig`, yields a `TMForumBackedRepository` bound to that endpoint — built on a low-level Micronaut `HttpClient` created per base URL (cached), reusing the generated **model** classes for (de)serialization. (Alternative to evaluate: programmatic declarative-client creation / per-provider `micronaut.http.services.*` beans.)
+- Refactor `TMForumBackedRepository` so its base URL is a constructor parameter rather than five injected singletons.
+
+### 11.6 Phase 4 — Route each endpoint by provider
+
+- Each controller method: extract `providerKey` (participant id for `/for`+`/verify`; URL segment for catalog/participants; composite id for `/bilaterals/{id}`) → `ProviderRegistry.byKey` → `TMForumClientFactory` → per-provider repository → existing mappers. Mappers/`CatalogUrls` are provider-aware from Phase 2.
+- Unknown/unregistered provider key → `404`/`Problem`.
+
+### 11.7 Phase 5 — Provider-aware registration
+
+- Whoever registers a participant (the DSC deploy-time register Job / `consent_grant.sh` / a future registration API) must set the **provider-keyed** `selfDescriptionURL`, so the consent-manager stores it and hands it back on every call.
+- Open modelling question: which provider's TM Forum serves a **consumer** participant's org (the receipt build dereferences the consumer SD too). Typically the consumer is registered in the provider's `tm-forum-api` as an ordering party, or in a shared party registry — the SD URL's `providerKey` must name whichever endpoint actually holds that org.
+
+### 11.8 Phase 6 — Dynamic registry (API + DB) — future
+
+- `PersistentProviderRegistry` backed by a database (Micronaut Data; small schema `provider(key, tmforum_base_url, …)`), replacing/overlaying the static config; cache with refresh.
+- Admin API: `POST/GET/PUT/DELETE /providers` (create/list/update/remove a provider→endpoint mapping), authenticated. Seed the DB from `facade.providers` on first start.
+- The registry interface (§11.3) is unchanged, so Phases 1–5 are written against it and this phase is a drop-in implementation swap plus the CRUD controller.
+
+### 11.9 Out of scope / notes
+
+- Ecosystem (`/contracts/*`) multi-provider federation stays deferred (no TM Forum source yet).
+- `providerKey` format decision (slug vs org id vs DID) is a one-way door for URL stability — pick early.

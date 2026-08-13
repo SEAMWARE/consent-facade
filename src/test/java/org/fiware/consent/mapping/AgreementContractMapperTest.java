@@ -1,6 +1,7 @@
 package org.fiware.consent.mapping;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.fiware.consent.configuration.FacadeProperties;
 import org.fiware.consent.model.BilateralContractVO;
 import org.fiware.consent.model.OdrlPolicyVO;
 import org.fiware.consent.tmforum.TMForumBackedRepository.AgreementCharacteristic;
@@ -19,6 +20,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link AgreementContractMapper}: the projection of an EDC-written TM Forum agreement
@@ -28,8 +30,15 @@ class AgreementContractMapperTest {
 
     private static final Instant INITIAL_DATE = Instant.parse("2026-01-02T03:04:05Z");
     private static final long SIGNING_EPOCH_SECONDS = 1_700_000_000L;
+    private static final String SELF_URL = "http://facade.example";
 
-    private final AgreementContractMapper mapper = new AgreementContractMapper(new ObjectMapper());
+    private final AgreementContractMapper mapper = new AgreementContractMapper(new ObjectMapper(), catalogUrls());
+
+    private static CatalogUrls catalogUrls() {
+        FacadeProperties facadeProperties = new FacadeProperties();
+        facadeProperties.setSelfUrl(SELF_URL);
+        return new CatalogUrls(facadeProperties);
+    }
 
     private static CharacteristicVO characteristic(String name, Object value) {
         return new CharacteristicVO().name(name).value(value);
@@ -74,6 +83,13 @@ class AgreementContractMapperTest {
         assertEquals(INITIAL_DATE, contract.getCreatedAt(), "createdAt is the agreement initial date.");
         assertEquals(Instant.ofEpochSecond(SIGNING_EPOCH_SECONDS), contract.getUpdatedAt(),
                 "updatedAt is the signing date (epoch seconds).");
+        assertEquals(SELF_URL + "/catalog/serviceofferings/agreement-1", contract.getServiceOffering(),
+                "serviceOffering points at this facade's catalog endpoint for the agreement.");
+        assertEquals("agreement-1", contract.getProfile(), "profile carries the agreement id as the privacy-notice title.");
+        assertNotNull(contract.getPurpose(), "The contract carries a purpose.");
+        assertEquals(1, contract.getPurpose().size(), "One agreement offering maps to one purpose.");
+        assertEquals(SELF_URL + "/catalog/serviceofferings/agreement-1", contract.getPurpose().get(0).getPurpose(),
+                "purpose[].purpose points at the same offering URL, whose softwareResources carry the purpose.");
     }
 
     @Test
@@ -86,8 +102,12 @@ class AgreementContractMapperTest {
         assertEquals("Set", policy.getAtType(), "The policy @type is carried over.");
         assertEquals("urn:policy:1", policy.getUid(), "The policy uid is carried over.");
         assertEquals(1, policy.getPermission().size(), "The permission rule is carried over.");
-        assertEquals("urn:asset:1", policy.getPermission().get(0).getTarget(), "The permission target is carried over.");
+        assertEquals(SELF_URL + "/catalog/serviceofferings/agreement-1", policy.getPermission().get(0).getTarget(),
+                "The permission target is retargeted to the service-offering URL so the consent-manager's "
+                        + "serviceOffering.includes(target) data-chain check matches.");
         assertEquals("use", policy.getPermission().get(0).getAction(), "The permission action is carried over.");
+        assertNotNull(policy.getProhibition(), "prohibition is always a (possibly empty) array - the consent-manager maps over it.");
+        assertTrue(policy.getProhibition().isEmpty(), "an EDC policy without a prohibition maps to an empty prohibition list.");
     }
 
     @Test

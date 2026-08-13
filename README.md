@@ -82,6 +82,7 @@ micronaut:
     services:
       product-order: { url: http://tm-forum-api:8080 }
       product-catalog: { url: http://tm-forum-api:8080 }
+      product-inventory: { url: http://tm-forum-api:8080 }
       party: { url: http://tm-forum-api:8080 }
       agreement: { url: http://tm-forum-api:8080 }
 facade:

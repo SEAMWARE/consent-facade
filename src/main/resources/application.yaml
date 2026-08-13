@@ -23,6 +23,10 @@ micronaut:
         path: "/tmf-api/productCatalogManagement/v4"
         url: http://localhost:8082
         read-timeout: 30
+      product-inventory:
+        path: "/tmf-api/productInventory/v4"
+        url: http://localhost:8085
+        read-timeout: 30
       party:
         path: "/tmf-api/party/v4"
         url: http://localhost:8083

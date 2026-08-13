@@ -6,6 +6,8 @@ import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.fiware.consent.model.BilateralContractVO;
 import org.fiware.consent.model.OdrlPolicyVO;
+import org.fiware.consent.model.OdrlRuleVO;
+import org.fiware.consent.model.PurposeVO;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
 import org.fiware.consent.tmforum.TMForumBackedRepository.AgreementCharacteristic;
 import org.fiware.consent.tmforum.TMForumBackedRepository.EngagedPartyRole;
@@ -13,6 +15,7 @@ import org.fiware.consent.tmforum.agreement.model.AgreementVO;
 import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,11 +35,12 @@ import java.util.Optional;
  * engaged-party lists and from a JSON conversion of the ODRL policy - so a declarative mapper adds
  * no value over explicit code.
  *
- * <p>Scope note: per the current task this maps only into {@link BilateralContractVO}. The
- * catalog-graph fields whose values are facade URLs - {@code serviceOffering}, {@code purpose},
- * {@code uri}, {@code profile} - are intentionally left unset here; they are populated once the
- * catalog endpoints they must point at are wired in (see the consistency invariant in
- * {@code REQUIREMENTS.md} §6).
+ * <p>The {@code serviceOffering} field is set to this facade's
+ * {@code /catalog/serviceofferings/{agreementId}} URL (via {@link CatalogUrls}); dereferencing it
+ * yields all of the agreement's product specifications as one {@code dataResources} bundle
+ * (consented all-or-nothing). {@code purpose[]} points at the <em>same</em> offering URL (which also
+ * exposes the specifications as {@code softwareResources}), and {@code profile} carries the agreement
+ * id as the privacy-notice title.
  */
 @Slf4j
 @Singleton
@@ -69,16 +73,19 @@ public class AgreementContractMapper {
             "draft", STATUS_DRAFT);
 
     private final ObjectMapper objectMapper;
+    private final CatalogUrls catalogUrls;
 
     /**
      * Creates the mapper.
      *
      * @param objectMapper the application Jackson mapper; a lenient copy is used to convert the
      *                      opaque ODRL policy characteristic into an {@link OdrlPolicyVO}
+     * @param catalogUrls  builds the {@code serviceOffering} URL the contract points back at
      */
-    public AgreementContractMapper(ObjectMapper objectMapper) {
+    public AgreementContractMapper(ObjectMapper objectMapper, CatalogUrls catalogUrls) {
         this.objectMapper = objectMapper.copy()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        this.catalogUrls = catalogUrls;
     }
 
     /**
@@ -91,13 +98,20 @@ public class AgreementContractMapper {
         if (agreement == null) {
             return null;
         }
+        // The single service offering carries both the data (dataResources) and the purposes
+        // (softwareResources); the contract points both serviceOffering and purpose[].purpose at it,
+        // so the consent-manager can build a privacy notice with non-empty data AND purposes.
+        String serviceOfferingUrl = catalogUrls.serviceOffering(agreement.getId());
         return new BilateralContractVO()
                 .id(agreement.getId())
                 .uid(agreement.getId())
+                .profile(agreement.getId())
                 .status(toContractStatus(agreement))
                 .dataProvider(participantId(agreement, AgreementCharacteristic.PROVIDER_ID, EngagedPartyRole.PROVIDER))
                 .dataConsumer(participantId(agreement, AgreementCharacteristic.CONSUMER_ID, EngagedPartyRole.CONSUMER))
-                .policy(toPolicies(agreement))
+                .policy(toPolicies(agreement, serviceOfferingUrl))
+                .serviceOffering(serviceOfferingUrl)
+                .purpose(List.of(new PurposeVO().purpose(serviceOfferingUrl)))
                 .createdAt(agreement.getInitialDate())
                 .updatedAt(signingInstant(agreement).orElse(agreement.getInitialDate()));
     }
@@ -154,14 +168,50 @@ public class AgreementContractMapper {
 
     /**
      * Converts the ODRL policy carried in the {@code policy} characteristic into the contract's
-     * single-element policy list. Best-effort: an absent or unconvertible policy yields
+     * single-element policy list, retargeting its rules to the contract's service-offering URL
+     * (see {@link #retargetRules}). Best-effort: an absent or unconvertible policy yields
      * {@code null}, so the contract simply carries no policy rather than failing the mapping.
      */
-    private List<OdrlPolicyVO> toPolicies(AgreementVO agreement) {
+    private List<OdrlPolicyVO> toPolicies(AgreementVO agreement, String serviceOfferingUrl) {
         return TMForumBackedRepository.getCharacteristicValue(agreement, AgreementCharacteristic.POLICY)
                 .flatMap(this::toPolicy)
+                .map(policy -> retargetRules(policy, serviceOfferingUrl))
                 .map(List::of)
                 .orElse(null);
+    }
+
+    /**
+     * Normalizes and retargets the policy for the consent-manager. Two things it relies on:
+     * <ul>
+     *   <li>Both {@code permission} and {@code prohibition} exist as arrays - the consent-manager
+     *       maps over each unconditionally, so a policy that omits one (and TM Forum drops empty
+     *       arrays) would make it throw. Missing lists are defaulted to empty.</li>
+     *   <li>A rule {@code target} is a service-offering URL - the consent-manager only reads a
+     *       contract's data resources for rules whose target is <em>contained in</em> the contract's
+     *       {@code serviceOffering} (a string-containment check, {@code REQUIREMENTS.md} §3.1). The
+     *       EDC writes asset URNs, so every rule is retargeted to the one bundling offering
+     *       (all-or-nothing, §5); without this the data chain never matches.</li>
+     * </ul>
+     */
+    private OdrlPolicyVO retargetRules(OdrlPolicyVO policy, String serviceOfferingUrl) {
+        if (policy.getPermission() == null) {
+            policy.setPermission(new ArrayList<>());
+        }
+        if (policy.getProhibition() == null) {
+            policy.setProhibition(new ArrayList<>());
+        }
+        retargetRules(policy.getPermission(), serviceOfferingUrl);
+        retargetRules(policy.getProhibition(), serviceOfferingUrl);
+        return policy;
+    }
+
+    private static void retargetRules(List<OdrlRuleVO> rules, String serviceOfferingUrl) {
+        if (rules == null) {
+            return;
+        }
+        rules.stream()
+                .filter(Objects::nonNull)
+                .forEach(rule -> rule.setTarget(serviceOfferingUrl));
     }
 
     private Optional<OdrlPolicyVO> toPolicy(Object rawPolicy) {

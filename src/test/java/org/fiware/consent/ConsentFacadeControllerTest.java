@@ -11,18 +11,28 @@ import io.micronaut.test.extensions.junit5.annotation.MicronautTest;
 import jakarta.inject.Inject;
 import org.fiware.consent.model.BilateralContractListVO;
 import org.fiware.consent.model.BilateralContractVO;
+import org.fiware.consent.model.DataResourceVO;
 import org.fiware.consent.model.SelfDescriptionVO;
+import org.fiware.consent.model.ServiceOfferingVO;
 import org.fiware.consent.model.VerificationResultVO;
 import org.fiware.consent.tmforum.TMForumBackedRepository.AgreementCharacteristic;
 import org.fiware.consent.tmforum.TMForumBackedRepository.EngagedPartyRole;
 import org.fiware.consent.tmforum.agreement.api.AgreementApiClient;
+import org.fiware.consent.tmforum.agreement.model.AgreementItemVO;
 import org.fiware.consent.tmforum.agreement.model.AgreementVO;
 import org.fiware.consent.tmforum.agreement.model.CharacteristicVO;
+import org.fiware.consent.tmforum.agreement.model.ProductOfferingRefVO;
 import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
 import org.fiware.consent.tmforum.party.api.OrganizationApiClient;
 import org.fiware.consent.tmforum.party.model.MediumCharacteristicVO;
 import org.fiware.consent.tmforum.party.model.OrganizationVO;
 import org.fiware.consent.tmforum.party.model.ContactMediumVO;
+import org.fiware.consent.tmforum.productcatalog.api.ProductOfferingApiClient;
+import org.fiware.consent.tmforum.productcatalog.api.ProductSpecificationApiClient;
+import org.fiware.consent.tmforum.productcatalog.model.ProductOfferingVO;
+import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationRefVO;
+import org.fiware.consent.tmforum.productcatalog.model.ProductSpecificationVO;
+import org.fiware.consent.tmforum.productinventory.api.ProductApiClient;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 
@@ -61,6 +71,12 @@ class ConsentFacadeControllerTest {
     @Inject
     OrganizationApiClient organizationApiClient;
 
+    @Inject
+    ProductOfferingApiClient productOfferingApiClient;
+
+    @Inject
+    ProductSpecificationApiClient productSpecificationApiClient;
+
     @MockBean(AgreementApiClient.class)
     AgreementApiClient agreementApiClient() {
         return mock(AgreementApiClient.class);
@@ -69,6 +85,21 @@ class ConsentFacadeControllerTest {
     @MockBean(OrganizationApiClient.class)
     OrganizationApiClient organizationApiClient() {
         return mock(OrganizationApiClient.class);
+    }
+
+    @MockBean(ProductOfferingApiClient.class)
+    ProductOfferingApiClient productOfferingApiClient() {
+        return mock(ProductOfferingApiClient.class);
+    }
+
+    @MockBean(ProductSpecificationApiClient.class)
+    ProductSpecificationApiClient productSpecificationApiClient() {
+        return mock(ProductSpecificationApiClient.class);
+    }
+
+    @MockBean(ProductApiClient.class)
+    ProductApiClient productApiClient() {
+        return mock(ProductApiClient.class);
     }
 
     private static String base64(String value) {
@@ -195,5 +226,45 @@ class ConsentFacadeControllerTest {
                 client.toBlocking().retrieve(HttpRequest.GET("/participants/missing"), SelfDescriptionVO.class));
 
         assertEquals(HttpStatus.NOT_FOUND, exception.getStatus(), "A missing organization should map to 404.");
+    }
+
+    @Test
+    void getServiceOffering_bundlesAllAgreementSpecificationsAsDataResources() {
+        AgreementVO agreement = new AgreementVO().id("agr-1").agreementItem(List.of(
+                new AgreementItemVO().productOffering(List.of(new ProductOfferingRefVO().id("off-1")))));
+        when(agreementApiClient.retrieveAgreement(eq("agr-1"), any()))
+                .thenReturn(Mono.just(HttpResponse.ok(agreement)));
+        when(productOfferingApiClient.retrieveProductOffering(eq("off-1"), any()))
+                .thenReturn(Mono.just(HttpResponse.ok(new ProductOfferingVO().id("off-1")
+                        .productSpecification(new ProductSpecificationRefVO().id("spec-1")))));
+
+        ServiceOfferingVO offering = client.toBlocking()
+                .retrieve(HttpRequest.GET("/catalog/serviceofferings/agr-1"), ServiceOfferingVO.class);
+
+        assertEquals(1, offering.getDataResources().size(), "The agreement's single specification is bundled.");
+        assertTrue(offering.getDataResources().get(0).endsWith("/catalog/dataresources/spec-1"),
+                "The data resource points at the specification's facade URL.");
+    }
+
+    @Test
+    void getServiceOffering_returns404WhenAgreementMissing() {
+        when(agreementApiClient.retrieveAgreement(eq("missing"), any()))
+                .thenReturn(Mono.error(new HttpClientResponseException("Not Found", HttpResponse.notFound())));
+
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(HttpRequest.GET("/catalog/serviceofferings/missing"), ServiceOfferingVO.class));
+
+        assertEquals(HttpStatus.NOT_FOUND, exception.getStatus(), "A missing agreement should map to 404.");
+    }
+
+    @Test
+    void getDataResource_returnsMappedSpecification() {
+        when(productSpecificationApiClient.retrieveProductSpecification(eq("spec-1"), any()))
+                .thenReturn(Mono.just(HttpResponse.ok(new ProductSpecificationVO().id("spec-1").name("Customer profile"))));
+
+        DataResourceVO dataResource = client.toBlocking()
+                .retrieve(HttpRequest.GET("/catalog/dataresources/spec-1"), DataResourceVO.class);
+
+        assertEquals("Customer profile", dataResource.getName(), "The data resource is the mapped specification.");
     }
 }

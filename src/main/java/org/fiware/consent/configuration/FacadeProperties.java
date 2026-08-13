@@ -24,6 +24,8 @@ public class FacadeProperties {
 
     private PartyMapping party = new PartyMapping();
 
+    private SpecMapping spec = new SpecMapping();
+
     @Data
     public static class Party {
         /** Self-description identifier of the party. */
@@ -34,5 +36,15 @@ public class FacadeProperties {
     public static class PartyMapping {
         /** Name of the TM Forum party characteristic that carries the participant did. */
         private String didCharacteristic = "did";
+    }
+
+    @Data
+    public static class SpecMapping {
+        /**
+         * Name of the TM Forum product-specification characteristic that carries the processing
+         * purpose (see {@code REQUIREMENTS.md} §0.2). Its value's {@code name} becomes the
+         * software-resource name the consent-manager records as the consent purpose.
+         */
+        private String purposeCharacteristic = "purpose";
     }
 }

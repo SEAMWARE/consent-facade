@@ -60,6 +60,9 @@
         <tmforum.productcatalog.api.url>
             https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/product-catalog/api.json
         </tmforum.productcatalog.api.url>
+        <tmforum.productinventory.api.url>
+            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/product-inventory/api.json
+        </tmforum.productinventory.api.url>
         <tmforum.party.api.url>
             https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/party-catalog/api.json
         </tmforum.party.api.url>
@@ -324,6 +327,40 @@
                             </typeMappings>
                         </configuration>
                     </execution>
+                    <!-- TM Forum product inventory (client) -->
+                    <execution>
+                        <id>tmforum-product-inventory</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <inputSpec>${tmforum.productinventory.api.url}</inputSpec>
+                            <apiPackage>org.fiware.consent.tmforum.productinventory.api</apiPackage>
+                            <modelPackage>org.fiware.consent.tmforum.productinventory.model</modelPackage>
+                            <strictSpec>true</strictSpec>
+                            <generatorName>micronaut</generatorName>
+                            <modelNameSuffix>VO</modelNameSuffix>
+                            <output>${project.build.directory}</output>
+                            <generateSupportingFiles>false</generateSupportingFiles>
+                            <configOptions>
+                                <clientId>product-inventory</clientId>
+                                <fullJavaUtil>true</fullJavaUtil>
+                                <useOptional>false</useOptional>
+                                <useGenericResponse>true</useGenericResponse>
+                                <useLombokGenerated>true</useLombokGenerated>
+                                <introspected>true</introspected>
+                                <useBeanValidation>false</useBeanValidation>
+                                <supportAsync>true</supportAsync>
+                                <jacksonDatabindNullable>false</jacksonDatabindNullable>
+                                <serdeable>false</serdeable>
+                                <generateExamples>false</generateExamples>
+                            </configOptions>
+                            <typeMappings>
+                                <typeMapping>java.util.Date=java.time.Instant</typeMapping>
+                            </typeMappings>
+                        </configuration>
+                    </execution>
                     <!-- TM Forum agreement (client) -->
                     <execution>
                         <id>tmforum-agreement</id>
@@ -503,6 +540,29 @@
                                     <org.opencontainers.image.vendor>${project.vendor}</org.opencontainers.image.vendor>
                                 </labels>
                             </container>
+                        </configuration>
+                        <!-- push the image to the registry during the deploy phase (CI: mvn clean deploy -Poci) -->
+                        <executions>
+                            <execution>
+                                <id>push-oci-image</id>
+                                <phase>deploy</phase>
+                                <goals>
+                                    <goal>build</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!--
+                        The deploy phase publishes the OCI image via jib, not a Maven artifact to a
+                        repository. Disable the default maven-deploy-plugin, which would otherwise
+                        fail for want of a distributionManagement repository.
+                    -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-deploy-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
                         </configuration>
                     </plugin>
                 </plugins>

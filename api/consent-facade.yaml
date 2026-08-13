@@ -437,6 +437,9 @@ components:
           description: URLs of the software resources exposed by a purpose offering.
           items:
             type: string
+        userInteraction:
+          type: boolean
+          description: Whether granting consent for this offering requires user interaction (read by the consent-manager giveConsent path).
         policy:
           type: array
           items:

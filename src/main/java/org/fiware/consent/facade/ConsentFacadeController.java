@@ -8,6 +8,7 @@ import org.fiware.consent.api.CatalogApi;
 import org.fiware.consent.api.ContractsApi;
 import org.fiware.consent.api.ParticipantsApi;
 import org.fiware.consent.mapping.AgreementContractMapper;
+import org.fiware.consent.mapping.CatalogMapper;
 import org.fiware.consent.mapping.OrganizationSelfDescriptionMapper;
 import org.fiware.consent.model.BilateralContractListVO;
 import org.fiware.consent.model.BilateralContractVO;
@@ -34,9 +35,12 @@ import java.util.Objects;
  * {@link AgreementContractMapper} maps each into a {@link BilateralContractVO}.
  *
  * <p>The participant endpoint is projected from a TM Forum organization via the
- * {@link OrganizationSelfDescriptionMapper}. The catalog and ecosystem-contract endpoints are still
- * scaffolded (list endpoints answer with an empty result, single lookups answer {@code 404}): the
- * ecosystem contracts have no TM Forum source yet, and the catalog projection awaits its own mapper.
+ * {@link OrganizationSelfDescriptionMapper}. The catalog service-offering, data-resource and
+ * software-resource endpoints are projected via the {@link CatalogMapper}: an agreement's service
+ * offering bundles all of the agreement's product specifications as {@code dataResources} (the data)
+ * and {@code softwareResources} (the purposes); each data resource is a mapped product specification
+ * and each software resource is that specification's purpose characteristic. The ecosystem-contract
+ * endpoints remain scaffolded ({@code 404}/empty) - ecosystem contracts have no TM Forum source yet.
  */
 @Slf4j
 @Controller("${facade.base-path:/}")
@@ -46,6 +50,7 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     private final TMForumBackedRepository repository;
     private final AgreementContractMapper agreementContractMapper;
     private final OrganizationSelfDescriptionMapper organizationSelfDescriptionMapper;
+    private final CatalogMapper catalogMapper;
 
     // ---- contracts -------------------------------------------------------------------
 
@@ -98,18 +103,30 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
 
     @Override
     public Mono<HttpResponse<ServiceOfferingVO>> getServiceOffering(String id) {
-        // TODO: resolve the offering/spec into a service-offering self-description (dataResources/softwareResources).
-        return Mono.<HttpResponse<ServiceOfferingVO>>just(HttpResponse.notFound());
+        // one contract = one agreement = one service offering bundling all of the agreement's specifications
+        return repository.findAgreementById(id)
+                .flatMap(agreement -> repository.resolveSpecificationIds(agreement)
+                        .collectList()
+                        .map(specificationIds -> catalogMapper.toServiceOffering(id, specificationIds)))
+                .<HttpResponse<ServiceOfferingVO>>map(HttpResponse::ok)
+                .defaultIfEmpty(HttpResponse.notFound());
     }
 
     @Override
     public Mono<HttpResponse<DataResourceVO>> getDataResource(String id) {
-        return Mono.<HttpResponse<DataResourceVO>>just(HttpResponse.notFound());
+        return repository.findProductSpecificationById(id)
+                .map(catalogMapper::toDataResource)
+                .<HttpResponse<DataResourceVO>>map(HttpResponse::ok)
+                .defaultIfEmpty(HttpResponse.notFound());
     }
 
     @Override
     public Mono<HttpResponse<SoftwareResourceVO>> getSoftwareResource(String id) {
-        return Mono.<HttpResponse<SoftwareResourceVO>>just(HttpResponse.notFound());
+        // a software resource is the purpose of a product specification (its id == the spec id)
+        return repository.findProductSpecificationById(id)
+                .map(catalogMapper::toSoftwareResource)
+                .<HttpResponse<SoftwareResourceVO>>map(HttpResponse::ok)
+                .defaultIfEmpty(HttpResponse.notFound());
     }
 
     // ---- participants ----------------------------------------------------------------
