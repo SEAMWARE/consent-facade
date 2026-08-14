@@ -132,15 +132,26 @@ public class PersistentProviderRegistry implements ProviderRegistry {
     }
 
     private static ProviderEntity toEntity(ProviderConfiguration configuration) {
-        return new ProviderEntity(
-                configuration.getKey(), configuration.getTmforumBaseUrl(), configuration.getSelfDescription());
+        return new ProviderEntity(configuration.getKey(), configuration.getTmforumBaseUrl(),
+                configuration.getSelfDescription(), configuration.getClientId(), joinScopes(configuration.getScopes()));
     }
 
     private static ProviderEntity toEntity(ProviderConfig provider) {
-        return new ProviderEntity(provider.key(), provider.tmforumBaseUrl(), provider.selfDescription());
+        return new ProviderEntity(provider.key(), provider.tmforumBaseUrl(), provider.selfDescription(),
+                provider.clientId(), joinScopes(provider.scopes()));
     }
 
     private static ProviderConfig toConfig(ProviderEntity entity) {
-        return new ProviderConfig(entity.key(), entity.tmforumBaseUrl(), entity.selfDescription());
+        return new ProviderConfig(entity.key(), entity.tmforumBaseUrl(), entity.selfDescription(),
+                entity.clientId(), splitScopes(entity.scopes()));
+    }
+
+    /** Scopes are stored as a single space-delimited column; {@code null}/empty ⇒ no override. */
+    private static String joinScopes(List<String> scopes) {
+        return (scopes == null || scopes.isEmpty()) ? null : String.join(" ", scopes);
+    }
+
+    private static List<String> splitScopes(String scopes) {
+        return (scopes == null || scopes.isBlank()) ? null : List.of(scopes.trim().split("\\s+"));
     }
 }

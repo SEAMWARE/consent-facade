@@ -4,12 +4,17 @@ import io.micronaut.http.client.HttpClient;
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
+import org.fiware.consent.auth.AuthHandler;
+import org.fiware.consent.auth.Oid4VpConfiguration;
 import org.fiware.consent.tmforum.HttpTMForumApis;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -35,15 +40,25 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TMForumClientFactory {
 
     private final TMForumBackedRepository defaultRepository;
+    private final Optional<AuthHandler> authHandler;
+    private final Oid4VpConfiguration oid4VpConfiguration;
     private final Map<String, HttpClient> clientsByBaseUrl = new ConcurrentHashMap<>();
     private final Map<String, TMForumBackedRepository> repositoriesByProviderKey = new ConcurrentHashMap<>();
 
     /**
-     * @param defaultRepository the context-managed repository over the generated clients, used for
-     *                          the default provider
+     * @param defaultRepository   the context-managed repository over the generated clients, used for
+     *                            the default provider
+     * @param authHandler         the OID4VP auth handler (empty when OID4VP is disabled) used to
+     *                            authenticate non-default providers' low-level requests
+     * @param oid4VpConfiguration supplies the default OID4VP {@code client_id}/scopes (per-provider
+     *                            override is planned via the admin API, implementation-plan.md step 4)
      */
-    public TMForumClientFactory(TMForumBackedRepository defaultRepository) {
+    public TMForumClientFactory(TMForumBackedRepository defaultRepository,
+                                Optional<AuthHandler> authHandler,
+                                Oid4VpConfiguration oid4VpConfiguration) {
         this.defaultRepository = defaultRepository;
+        this.authHandler = authHandler;
+        this.oid4VpConfiguration = oid4VpConfiguration;
     }
 
     /**
@@ -58,7 +73,26 @@ public class TMForumClientFactory {
             return defaultRepository;
         }
         return repositoriesByProviderKey.computeIfAbsent(provider.key(),
-                key -> new TMForumBackedRepository(new HttpTMForumApis(clientFor(provider.tmforumBaseUrl()))));
+                key -> new TMForumBackedRepository(new HttpTMForumApis(
+                        clientFor(provider.tmforumBaseUrl()),
+                        authHandler,
+                        resolveClientId(provider),
+                        resolveScopes(provider))));
+    }
+
+    /** The provider's OID4VP {@code client_id}, falling back to the facade default. */
+    String resolveClientId(ProviderConfig provider) {
+        return (provider.clientId() != null && !provider.clientId().isBlank())
+                ? provider.clientId()
+                : oid4VpConfiguration.getClientId();
+    }
+
+    /** The provider's OID4VP scopes, falling back to the facade default. */
+    Set<String> resolveScopes(ProviderConfig provider) {
+        List<String> scopes = (provider.scopes() != null && !provider.scopes().isEmpty())
+                ? provider.scopes()
+                : oid4VpConfiguration.getScopes();
+        return Set.copyOf(scopes);
     }
 
     private HttpClient clientFor(String baseUrl) {

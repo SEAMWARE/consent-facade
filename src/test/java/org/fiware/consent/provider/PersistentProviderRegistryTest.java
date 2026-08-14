@@ -32,7 +32,7 @@ class PersistentProviderRegistryTest {
     ProviderRepository repository;
 
     private static ProviderConfig provider(String key, String tmforumBaseUrl) {
-        return new ProviderConfig(key, tmforumBaseUrl, null);
+        return new ProviderConfig(key, tmforumBaseUrl, null, null, null);
     }
 
     @Test

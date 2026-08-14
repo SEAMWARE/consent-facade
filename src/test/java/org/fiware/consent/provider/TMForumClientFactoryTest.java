@@ -1,10 +1,14 @@
 package org.fiware.consent.provider;
 
+import org.fiware.consent.auth.Oid4VpConfiguration;
 import org.fiware.consent.tmforum.TMForumBackedRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -18,11 +22,11 @@ import static org.mockito.Mockito.mock;
 class TMForumClientFactoryTest {
 
     private static final ProviderConfig DEFAULT_PROVIDER =
-            new ProviderConfig(ProviderRegistry.DEFAULT_PROVIDER_KEY, "http://tm-forum-api.default.svc:8080", null);
+            new ProviderConfig(ProviderRegistry.DEFAULT_PROVIDER_KEY, "http://tm-forum-api.default.svc:8080", null, null, null);
     private static final ProviderConfig PROVIDER_A =
-            new ProviderConfig("provider-a", "http://tm-forum-api.provider-a.svc:8080", null);
+            new ProviderConfig("provider-a", "http://tm-forum-api.provider-a.svc:8080", null, null, null);
     private static final ProviderConfig PROVIDER_B =
-            new ProviderConfig("provider-b", "http://tm-forum-api.provider-b.svc:8080", null);
+            new ProviderConfig("provider-b", "http://tm-forum-api.provider-b.svc:8080", null, null, null);
 
     private TMForumBackedRepository defaultRepository;
     private TMForumClientFactory factory;
@@ -30,7 +34,7 @@ class TMForumClientFactoryTest {
     @BeforeEach
     void setUp() {
         defaultRepository = mock(TMForumBackedRepository.class);
-        factory = new TMForumClientFactory(defaultRepository);
+        factory = new TMForumClientFactory(defaultRepository, Optional.empty(), new Oid4VpConfiguration());
     }
 
     @AfterEach
@@ -62,5 +66,29 @@ class TMForumClientFactoryTest {
     void forProvider_buildsADistinctRepositoryPerProvider() {
         assertNotSame(factory.forProvider(PROVIDER_A), factory.forProvider(PROVIDER_B),
                 "Different providers get different repositories.");
+    }
+
+    @Test
+    void resolvesTheProvidersOid4vpParametersFallingBackToTheFacadeDefault() {
+        Oid4VpConfiguration configuration = new Oid4VpConfiguration();
+        configuration.setClientId("facade-default");
+        configuration.setScopes(java.util.List.of("openid"));
+        TMForumClientFactory resolvingFactory =
+                new TMForumClientFactory(defaultRepository, Optional.empty(), configuration);
+
+        org.fiware.consent.provider.ProviderConfig withOverride =
+                new ProviderConfig("p", "http://tmf:8080", null, "provider-client", java.util.List.of("tmforum:read"));
+        assertEquals("provider-client", resolvingFactory.resolveClientId(withOverride),
+                "A provider's own client_id is used.");
+        assertEquals(java.util.Set.of("tmforum:read"), resolvingFactory.resolveScopes(withOverride),
+                "A provider's own scopes are used.");
+
+        org.fiware.consent.provider.ProviderConfig withoutOverride =
+                new ProviderConfig("p", "http://tmf:8080", null, null, null);
+        assertEquals("facade-default", resolvingFactory.resolveClientId(withoutOverride),
+                "Without a provider client_id, the facade default is used.");
+        assertEquals(java.util.Set.of("openid"), resolvingFactory.resolveScopes(withoutOverride),
+                "Without provider scopes, the facade default is used.");
+        resolvingFactory.close();
     }
 }

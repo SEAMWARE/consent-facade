@@ -15,10 +15,14 @@ import io.micronaut.data.annotation.MappedProperty;
  * @param key             the provider key (primary key)
  * @param tmforumBaseUrl  base url of the provider's TM Forum backend
  * @param selfDescription this provider participant's own self-description URL (nullable)
+ * @param clientId        this provider's OID4VP {@code client_id} (nullable)
+ * @param scopes          this provider's OID4VP scopes, space-delimited (nullable)
  */
 @MappedEntity("provider")
 public record ProviderEntity(
         @Id @MappedProperty("provider_key") String key,
         String tmforumBaseUrl,
-        @Nullable String selfDescription) {
+        @Nullable String selfDescription,
+        @Nullable String clientId,
+        @Nullable String scopes) {
 }

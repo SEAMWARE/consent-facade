@@ -1,5 +1,8 @@
 package org.fiware.consent.provider;
 
+import io.micronaut.core.annotation.Nullable;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -20,8 +23,14 @@ import java.util.Objects;
  *                        {@code …/participants/{key}~{providerOrgId}}), used as the {@code producedBy}
  *                        of the data resources it offers (plan §11.7); may be {@code null}, in which
  *                        case callers fall back to the legacy global {@code facade.provider.self-description}
+ * @param clientId        this provider's OID4VP {@code client_id} for authenticating outbound TM Forum
+ *                        calls (implementation-plan.md step 4); {@code null} ⇒ the facade default
+ *                        {@code oid4vp.client-id}
+ * @param scopes          this provider's OID4VP scopes; {@code null}/empty ⇒ the facade default
+ *                        {@code oid4vp.scopes}
  */
-public record ProviderConfig(String key, String tmforumBaseUrl, String selfDescription) {
+public record ProviderConfig(String key, String tmforumBaseUrl, String selfDescription,
+                             @Nullable String clientId, @Nullable List<String> scopes) {
 
     /**
      * Creates a provider config.

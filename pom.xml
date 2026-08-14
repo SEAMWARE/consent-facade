@@ -87,6 +87,9 @@
 
         <!-- test -->
         <version.org.awaitility>4.2.0</version.org.awaitility>
+        <version.io.github.wistefan.oid4vp-client-lib>0.0.5</version.io.github.wistefan.oid4vp-client-lib>
+        <version.com.nimbusds.nimbus-jose-jwt>10.5</version.com.nimbusds.nimbus-jose-jwt>
+        <version.org.bouncycastle>1.81</version.org.bouncycastle>
 
         <!-- build -->
         <version.org.codehaus.mojo.build-helper-maven-plugin>3.6.0</version.org.codehaus.mojo.build-helper-maven-plugin>
@@ -176,6 +179,28 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- OID4VP authentication of outbound TM Forum calls (active only when oid4vp.enabled=true) -->
+        <dependency>
+            <groupId>io.github.wistefan</groupId>
+            <artifactId>oid4vp-client-lib</artifactId>
+            <version>${version.io.github.wistefan.oid4vp-client-lib}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>${version.com.nimbusds.nimbus-jose-jwt}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>${version.org.bouncycastle}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>${version.org.bouncycastle}</version>
         </dependency>
 
         <!-- logging -->

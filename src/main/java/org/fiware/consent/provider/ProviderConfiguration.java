@@ -26,6 +26,8 @@ public class ProviderConfiguration {
     private final String key;
     private String tmforumBaseUrl;
     private String selfDescription;
+    private String clientId;
+    private java.util.List<String> scopes;
 
     /**
      * Creates the configuration for one provider.
@@ -69,5 +71,33 @@ public class ProviderConfiguration {
      */
     public void setSelfDescription(String selfDescription) {
         this.selfDescription = selfDescription;
+    }
+
+    /**
+     * @return this provider's OID4VP {@code client_id}, or {@code null} for the facade default
+     */
+    public String getClientId() {
+        return clientId;
+    }
+
+    /**
+     * @param clientId this provider's OID4VP {@code client_id}
+     */
+    public void setClientId(String clientId) {
+        this.clientId = clientId;
+    }
+
+    /**
+     * @return this provider's OID4VP scopes, or {@code null} for the facade default
+     */
+    public java.util.List<String> getScopes() {
+        return scopes;
+    }
+
+    /**
+     * @param scopes this provider's OID4VP scopes
+     */
+    public void setScopes(java.util.List<String> scopes) {
+        this.scopes = scopes;
     }
 }

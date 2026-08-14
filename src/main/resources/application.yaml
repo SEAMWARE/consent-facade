@@ -70,6 +70,9 @@ facade:
   # - self-description (optional): the provider participant's own provider-keyed self-description
   #   URL, used as the producedBy of its data resources (§11.7). Falls back to
   #   facade.provider.self-description when unset.
+  # - client-id / scopes (optional): this provider's OID4VP client_id and scopes for authenticating
+  #   outbound TM Forum calls (only used for non-default providers); fall back to
+  #   oid4vp.client-id / oid4vp.scopes when unset.
   providers:
     default:
       tmforum-base-url: http://localhost:8080

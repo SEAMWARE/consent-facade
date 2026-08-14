@@ -33,7 +33,7 @@ class ProviderAdminControllerTest {
     HttpClient client;
 
     private static ProviderRepresentation provider(String key, String tmforumBaseUrl) {
-        return new ProviderRepresentation(key, tmforumBaseUrl, null);
+        return new ProviderRepresentation(key, tmforumBaseUrl, null, null, null);
     }
 
     private HttpStatus statusOf(HttpRequest<?> request) {
@@ -112,6 +112,20 @@ class ProviderAdminControllerTest {
     void get_isNotFoundForAnUnknownProvider() {
         assertEquals(HttpStatus.NOT_FOUND, errorStatusOf(HttpRequest.GET("/providers/admin-unknown")),
                 "An unknown provider is a 404.");
+    }
+
+    @Test
+    void post_persistsPerProviderOid4vpClientIdAndScopes() {
+        ProviderRepresentation provider = new ProviderRepresentation(
+                "admin-oid4vp", "http://tmf.admin-oid4vp:8080", null, "provider-client",
+                java.util.List.of("openid", "tmforum:read"));
+        client.toBlocking().exchange(HttpRequest.POST("/providers", provider));
+
+        ProviderRepresentation fetched = client.toBlocking()
+                .retrieve(HttpRequest.GET("/providers/admin-oid4vp"), ProviderRepresentation.class);
+        assertEquals("provider-client", fetched.clientId(), "The provider's OID4VP client_id round-trips.");
+        assertEquals(java.util.List.of("openid", "tmforum:read"), fetched.scopes(),
+                "The provider's OID4VP scopes round-trip through the space-delimited column.");
     }
 
     @Test
