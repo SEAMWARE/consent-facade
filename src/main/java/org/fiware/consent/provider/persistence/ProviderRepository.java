@@ -11,11 +11,13 @@ import org.fiware.consent.provider.ProviderRegistry;
  * registry (plan §11.8).
  *
  * <p>Only present when the {@link ProviderRegistry#PERSISTENT_PROPERTY persistent} registry is
- * selected. The compile-time {@link Dialect#H2 H2} dialect matches the bundled default database;
- * a deployment on another database (e.g. PostgreSQL) rebuilds with its dialect. Only the standard
- * {@link CrudRepository} operations are used, whose SQL is dialect-portable.
+ * selected. The registry runs on {@link Dialect#POSTGRES PostgreSQL}; the {@code provider} table is
+ * created by the Flyway migration ({@code db/migration/V1__create_provider_table.sql}), not by
+ * {@code schema-generate} (which is not idempotent across restarts). Tests exercise the same
+ * migration against H2 in PostgreSQL-compatibility mode. Only the standard {@link CrudRepository}
+ * operations are used.
  */
 @Requires(property = ProviderRegistry.PERSISTENT_PROPERTY, value = "true")
-@JdbcRepository(dialect = Dialect.H2)
+@JdbcRepository(dialect = Dialect.POSTGRES)
 public interface ProviderRepository extends CrudRepository<ProviderEntity, String> {
 }

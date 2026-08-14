@@ -143,7 +143,8 @@
         </dependency>
 
         <!-- persistence (only active when the persistent provider registry is enabled,
-             facade.provider-registry.persistent=true; see PersistentProviderRegistry) -->
+             facade.provider-registry.persistent=true; see PersistentProviderRegistry).
+             The registry runs on PostgreSQL; the schema is managed by Flyway. -->
         <dependency>
             <groupId>io.micronaut.data</groupId>
             <artifactId>micronaut-data-jdbc</artifactId>
@@ -155,9 +156,26 @@
             <scope>compile</scope>
         </dependency>
         <dependency>
+            <groupId>io.micronaut.flyway</groupId>
+            <artifactId>micronaut-flyway</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- tests exercise the same Flyway migration against H2 in PostgreSQL-compatibility mode
+             (H2 support ships in flyway-core; only PostgreSQL needs its own module, above) -->
+        <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>runtime</scope>
+            <scope>test</scope>
         </dependency>
 
         <!-- logging -->

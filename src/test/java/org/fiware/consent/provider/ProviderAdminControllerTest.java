@@ -20,11 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @MicronautTest(transactional = false)
 @Property(name = ProviderRegistry.PERSISTENT_PROPERTY, value = "true")
-@Property(name = "datasources.default.url", value = "jdbc:h2:mem:provider-admin;DB_CLOSE_DELAY=-1")
+@Property(name = "datasources.default.url",
+        value = "jdbc:h2:mem:provider-admin;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1")
 @Property(name = "datasources.default.driver-class-name", value = "org.h2.Driver")
 @Property(name = "datasources.default.username", value = "sa")
-@Property(name = "datasources.default.dialect", value = "H2")
-@Property(name = "datasources.default.schema-generate", value = "CREATE_DROP")
+@Property(name = "datasources.default.dialect", value = "POSTGRES")
+@Property(name = "flyway.datasources.default.enabled", value = "true")
 class ProviderAdminControllerTest {
 
     @Inject
