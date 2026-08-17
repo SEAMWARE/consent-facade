@@ -60,9 +60,13 @@ public class Oid4VpAuthHandler implements AuthHandler {
                     if (response.getStatus() != HttpStatus.UNAUTHORIZED) {
                         return Mono.just(response);
                     }
+                    // Discovery lives at the service root (/.well-known/openid-configuration): the
+                    // library appends any non-empty path *before* /.well-known, which for the actual
+                    // request path (e.g. /tmf-api/party/...) would hit a protected sub-path and get the
+                    // provider's HTML 401 instead of the OIDC config. Pass an empty discovery path.
                     RequestParameters params = new RequestParameters(
                             serviceUri(request),
-                            request.getPath(),
+                            "",
                             clientId(request),
                             scope(request));
                     return Mono.fromFuture(oid4VPClient.getAccessToken(params))

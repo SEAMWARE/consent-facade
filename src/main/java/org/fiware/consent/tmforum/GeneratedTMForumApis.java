@@ -45,7 +45,7 @@ public class GeneratedTMForumApis implements TMForumApis {
     @Override
     public Mono<AgreementVO> retrieveAgreement(String id) {
         return agreementApiClient.retrieveAgreement(id, ALL_FIELDS)
-                .map(HttpResponse::body)
+                .mapNotNull(HttpResponse::body)
                 .onErrorResume(TMForumResponses::emptyOnNotFound);
     }
 
@@ -59,7 +59,7 @@ public class GeneratedTMForumApis implements TMForumApis {
     @Override
     public Mono<OrganizationVO> retrieveOrganization(String id) {
         return organizationApiClient.retrieveOrganization(id, ALL_FIELDS)
-                .map(HttpResponse::body)
+                .mapNotNull(HttpResponse::body)
                 .onErrorResume(TMForumResponses::emptyOnNotFound);
     }
 
@@ -73,21 +73,21 @@ public class GeneratedTMForumApis implements TMForumApis {
     @Override
     public Mono<ProductOfferingVO> retrieveProductOffering(String id) {
         return productOfferingApiClient.retrieveProductOffering(id, ALL_FIELDS)
-                .map(HttpResponse::body)
+                .mapNotNull(HttpResponse::body)
                 .onErrorResume(TMForumResponses::emptyOnNotFound);
     }
 
     @Override
     public Mono<ProductSpecificationVO> retrieveProductSpecification(String id) {
         return productSpecificationApiClient.retrieveProductSpecification(id, ALL_FIELDS)
-                .map(HttpResponse::body)
+                .mapNotNull(HttpResponse::body)
                 .onErrorResume(TMForumResponses::emptyOnNotFound);
     }
 
     @Override
     public Mono<ProductVO> retrieveProduct(String id) {
         return productApiClient.retrieveProduct(id, ALL_FIELDS)
-                .map(HttpResponse::body)
+                .mapNotNull(HttpResponse::body)
                 .onErrorResume(TMForumResponses::emptyOnNotFound);
     }
 }

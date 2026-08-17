@@ -219,22 +219,22 @@ public class TMForumBackedRepository {
         Flux<String> specificationIdsFromOfferings = Flux.fromIterable(agreementItems)
                 .flatMapIterable(item -> Optional.ofNullable(item.getProductOffering()).orElse(List.of()))
                 .map(offeringRef -> offeringRef.getId())
-                .filter(Objects::nonNull)
+                .filter(id -> id != null && !id.isBlank())
                 .flatMap(this::findProductOfferingById)
                 .map(ProductOfferingVO::getProductSpecification)
                 .filter(Objects::nonNull)
                 .map(specificationRef -> specificationRef.getId())
-                .filter(Objects::nonNull);
+                .filter(id -> id != null && !id.isBlank());
 
         Flux<String> specificationIdsFromProducts = Flux.fromIterable(agreementItems)
                 .flatMapIterable(item -> Optional.ofNullable(item.getProduct()).orElse(List.of()))
                 .map(productRef -> productRef.getId())
-                .filter(Objects::nonNull)
+                .filter(id -> id != null && !id.isBlank())
                 .flatMap(this::findProductById)
                 .map(ProductVO::getProductSpecification)
                 .filter(Objects::nonNull)
                 .map(specificationRef -> specificationRef.getId())
-                .filter(Objects::nonNull);
+                .filter(id -> id != null && !id.isBlank());
 
         return Flux.merge(specificationIdsFromOfferings, specificationIdsFromProducts)
                 .distinct();
