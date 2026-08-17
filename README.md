@@ -1,7 +1,7 @@
 # Consent Facade
 
 Facade that exposes the [Prometheus-X / Visions consent-manager](https://github.com/VisionsOfficial/consent-manager)
-*contract-service* API on top of the FIWARE [TM Forum APIs](https://github.com/FIWARE/tmforum-api).
+*contract-service* API on top of the FIWARE [TM Forum APIs](https://github.com/FIWARE/tmforum-api). 
 
 The consent-manager derives its privacy notices and consents from a *contract service* (configured through its
 `CONTRACT_SERVICE_BASE_URL`). In the FIWARE Data Space Connector there is no dedicated bilateral contract between a user
