@@ -37,7 +37,7 @@ jobs:
 
       - name: Get PR Number
         id: pr_number
-        run: echo "nr=$(echo $GITHUB_REF | awk 'BEGIN { FS = \"/\" } ; { print $3 }')" >> $GITHUB_OUTPUT
+        run: echo "::set-output name=nr::$(echo $GITHUB_REF | awk 'BEGIN { FS = "/" } ; { print $3 }')"
 
       - name: Set version output
         id: out
