@@ -35,13 +35,9 @@ jobs:
           bump: ${{ steps.bump.outputs.match }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get PR Number
-        id: pr_number
-        run: echo "nr=$(echo $GITHUB_REF | awk 'BEGIN { FS = \"/\" } ; { print $3 }')" >> $GITHUB_OUTPUT
-
       - name: Set version output
         id: out
-        run: echo "version=$(echo ${VERSION}-PRE-${{ steps.pr_number.outputs.nr }})" >> $GITHUB_OUTPUT
+        run: echo "version=${VERSION}-PRE-${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
 
   build-and-push:
     needs: [ "generate-version" ]
