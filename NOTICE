@@ -1,7 +1,7 @@
 consent-facade
-Copyright (c) FIWARE Foundation, e.V.
+Copyright 2026 Seamless Middleware Technologies S.L
 
-This product is licensed under the MIT License (see LICENSE).
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 --------------------------------------------------------------------------------
 Third-party code
@@ -11,7 +11,7 @@ This product includes software adapted from:
 
     FIWARE/contract-management
     https://github.com/FIWARE/contract-management
-    Licensed under the Apache License, Version 2.0 (see LICENSE-Apache-2.0).
+    Licensed under the Apache License, Version 2.0.
 
 The following files are derived from that project and have been modified:
 
@@ -23,6 +23,6 @@ The following files are derived from that project and have been modified:
     src/main/java/org/fiware/consent/auth/Oid4VpConfiguration.java
 
 Each of those files carries an attribution notice in its class documentation and
-states that it was modified. Modifications are Copyright (c) FIWARE Foundation,
-e.V. and are made available under the MIT License, without prejudice to the
-Apache-2.0 terms applying to the portions derived from the work above.
+states that it was modified. Modifications are Copyright 2026 Seamless
+Middleware Technologies S.L and are made available under the Apache License,
+Version 2.0.

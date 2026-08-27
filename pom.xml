@@ -44,9 +44,9 @@
             the consent-manager consumes.
         </project.summary>
         <project.url>https://github.com/wistefan/consent-facade</project.url>
-        <project.license.name>MIT</project.license.name>
-        <project.license.identifier>MIT</project.license.identifier>
-        <project.license.url>https://opensource.org/license/mit/</project.license.url>
+        <project.license.name>Apache License, Version 2.0</project.license.name>
+        <project.license.identifier>Apache-2.0</project.license.identifier>
+        <project.license.url>https://www.apache.org/licenses/LICENSE-2.0</project.license.url>
         <project.title>Consent Facade</project.title>
         <project.vendor>FIWARE Foundation, e.V.</project.vendor>
 
@@ -96,6 +96,7 @@
 
         <!-- build -->
         <version.org.codehaus.mojo.build-helper-maven-plugin>3.6.0</version.org.codehaus.mojo.build-helper-maven-plugin>
+        <version.com.diffplug.spotless>3.2.1</version.com.diffplug.spotless>
         <version.org.jacoco.maven-plugin>0.8.12</version.org.jacoco.maven-plugin>
         <version.org.cyclonedx.maven-plugin>2.9.1</version.org.cyclonedx.maven-plugin>
         <jacoco.minimum.line.coverage>0.88</jacoco.minimum.line.coverage>
@@ -553,6 +554,27 @@
                     <argLine>@{argLine} --add-opens java.base/java.lang=ALL-UNNAMED --add-opens
                         java.base/java.time=ALL-UNNAMED
                     </argLine>
+                </configuration>
+            </plugin>
+            <!-- License headers on every hand-written source file, enforced in CI via spotless:check -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${version.com.diffplug.spotless}</version>
+                <configuration>
+                    <java>
+                        <!-- generated sources are added as a compile source root by build-helper, so
+                             they land in spotless' default includes; they carry no header of ours -->
+                        <excludes>
+                            <exclude>${project.build.directory}/**/*.java</exclude>
+                        </excludes>
+
+                        <!-- Add license header -->
+                        <licenseHeader>
+                            <file>${session.executionRootDirectory}/license-header.txt</file>
+                            <delimiter>package</delimiter>
+                        </licenseHeader>
+                    </java>
                 </configuration>
             </plugin>
             <!-- SBOM (CycloneDX) alongside the jar, so what is shipped is enumerable -->

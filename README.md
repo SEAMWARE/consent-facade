@@ -188,6 +188,9 @@ behind the decisions rather than as a list of open work.
 
 ## Licensing
 
-MIT (see [`LICENSE`](LICENSE)). Six files in `auth/` are adapted from
-[FIWARE/contract-management](https://github.com/FIWARE/contract-management) (Apache-2.0); see [`NOTICE`](NOTICE) and
-[`LICENSE-Apache-2.0`](LICENSE-Apache-2.0).
+Apache License, Version 2.0 (see [`LICENSE`](LICENSE)). Six files in `auth/` are adapted from
+[FIWARE/contract-management](https://github.com/FIWARE/contract-management) (Apache-2.0); see [`NOTICE`](NOTICE).
+
+Every hand-written Java file carries the Apache-2.0 header from
+[`license-header.txt`](license-header.txt). This is enforced in CI - the `Check code style and license` step runs
+`mvn clean spotless:check` - so a file without the header fails the build. Run `mvn spotless:apply` to add it.

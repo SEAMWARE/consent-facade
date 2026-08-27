@@ -27,6 +27,9 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Check code style and license
+        run: mvn clean spotless:check
+
       - name: Run tests
         run: mvn clean verify
 
