@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.mapping;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -18,6 +34,7 @@ import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -150,7 +167,10 @@ public class AgreementContractMapper {
             return STATUS_SIGNED;
         }
         return Optional.ofNullable(agreement.getStatus())
-                .map(status -> AGREEMENT_STATUS_TO_CONTRACT_STATUS.get(status.toLowerCase()))
+                // Locale.ROOT, not the default locale: under a Turkish locale "INPROGRESS" lower-cases
+                // to a dotless 'ı', the lookup misses, and a signed-equivalent agreement silently
+                // becomes 'pending' - failing the hasSigned=true filter.
+                .map(status -> AGREEMENT_STATUS_TO_CONTRACT_STATUS.get(status.toLowerCase(Locale.ROOT)))
                 .orElse(STATUS_PENDING);
     }
 

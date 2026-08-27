@@ -1,0 +1,28 @@
+consent-facade
+Copyright 2026 Seamless Middleware Technologies S.L
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party code
+--------------------------------------------------------------------------------
+
+This product includes software adapted from:
+
+    FIWARE/contract-management
+    https://github.com/FIWARE/contract-management
+    Licensed under the Apache License, Version 2.0.
+
+The following files are derived from that project and have been modified:
+
+    src/main/java/org/fiware/consent/auth/AuthHandler.java
+    src/main/java/org/fiware/consent/auth/CertReader.java
+    src/main/java/org/fiware/consent/auth/DidKeyGenerator.java
+    src/main/java/org/fiware/consent/auth/Oid4VpAuthHandler.java
+    src/main/java/org/fiware/consent/auth/Oid4VpBeanFactory.java
+    src/main/java/org/fiware/consent/auth/Oid4VpConfiguration.java
+
+Each of those files carries an attribution notice in its class documentation and
+states that it was modified. Modifications are Copyright 2026 Seamless
+Middleware Technologies S.L and are made available under the Apache License,
+Version 2.0.

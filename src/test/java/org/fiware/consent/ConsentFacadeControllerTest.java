@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent;
 
 import io.micronaut.http.HttpRequest;
@@ -12,6 +28,8 @@ import jakarta.inject.Inject;
 import org.fiware.consent.model.BilateralContractListVO;
 import org.fiware.consent.model.BilateralContractVO;
 import org.fiware.consent.model.DataResourceVO;
+import org.fiware.consent.model.EcosystemContractListVO;
+import org.fiware.consent.model.EcosystemContractVO;
 import org.fiware.consent.model.SelfDescriptionVO;
 import org.fiware.consent.model.ServiceOfferingVO;
 import org.fiware.consent.model.VerificationResultVO;
@@ -297,5 +315,80 @@ class ConsentFacadeControllerTest {
                 .retrieve(HttpRequest.GET("/catalog/dataresources/spec-1"), DataResourceVO.class);
 
         assertEquals("Customer profile", dataResource.getName(), "The data resource is the mapped specification.");
+    }
+
+    @Test
+    void participantEndpoints_rejectAnIdThatIsNotBase64() {
+        stubList(signedAgreement("agr-1"));
+
+        // 'not base64!' is outside the alphabet. The old tolerant decoder used such a value verbatim,
+        // which meant a caller could never tell a malformed id from a participant without contracts.
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(
+                        HttpRequest.GET("/bilaterals/for/not%20base64%21"), BilateralContractListVO.class));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatus(),
+                "The spec says these path variables are base64; a value that is not is a caller error.");
+    }
+
+    @Test
+    void participantEndpoints_acceptUrlSafeBase64() {
+        stubList(signedAgreement("agr-1"));
+        String urlSafe = Base64.getUrlEncoder().encodeToString(PROVIDER_ID.getBytes(StandardCharsets.UTF_8));
+
+        BilateralContractListVO result = client.toBlocking()
+                .retrieve(HttpRequest.GET("/bilaterals/for/" + urlSafe), BilateralContractListVO.class);
+
+        assertEquals(1, result.getContracts().size(),
+                "standard base64 of a did/urn contains '+' and '/', so a caller may well have used the URL-safe alphabet");
+    }
+
+    @Test
+    void catalogEndpoints_rejectAnIdCarryingARequestInjectionCharacter() {
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(
+                        HttpRequest.GET("/catalog/dataresources/spec%3Ffields%3D%2A"), DataResourceVO.class));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatus(),
+                "An id that could shape the outbound TM Forum request is refused at the edge.");
+    }
+
+    @Test
+    void catalogEndpoints_rejectAnIdCarryingATraversalSegment() {
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(
+                        HttpRequest.GET("/catalog/dataresources/..%2Factuator"), DataResourceVO.class));
+
+        assertEquals(HttpStatus.BAD_REQUEST, exception.getStatus(), "Traversal is refused at the edge.");
+    }
+
+    @Test
+    void ecosystemContracts_areNotImplementedRatherThanSilentlyEmpty() {
+        HttpClientResponseException forParticipant = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().exchange(
+                        HttpRequest.GET("/contracts/for/" + base64(PROVIDER_ID)), EcosystemContractListVO.class));
+
+        assertEquals(HttpStatus.NOT_IMPLEMENTED, forParticipant.getStatus(),
+                "An empty list would read as 'this participant has no ecosystem contracts'.");
+
+        HttpClientResponseException byId = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().exchange(HttpRequest.GET("/contracts/agr-1"), EcosystemContractVO.class));
+
+        assertEquals(HttpStatus.NOT_IMPLEMENTED, byId.getStatus());
+    }
+
+    @Test
+    void aBackendFailureBecomesABadGatewayWithoutForwardingItsDetail() {
+        when(agreementApiClient.retrieveAgreement(eq("agr-1"), any()))
+                .thenReturn(Mono.error(new HttpClientResponseException(
+                        "Unauthorized", HttpResponse.unauthorized().body("internal backend detail"))));
+
+        HttpClientResponseException exception = assertThrows(HttpClientResponseException.class, () ->
+                client.toBlocking().retrieve(HttpRequest.GET("/bilaterals/agr-1"), BilateralContractVO.class));
+
+        assertEquals(HttpStatus.BAD_GATEWAY, exception.getStatus(),
+                "A provider backend's status must not be reflected onto the consent-manager-facing API.");
+        assertFalse(exception.getResponse().getBody(String.class).orElse("").contains("internal backend detail"),
+                "and neither must its error body");
     }
 }

@@ -5,6 +5,21 @@ micronaut:
   server:
     port: 8080
 
+    # Port isolation for the INTERNAL API (api/consent-facade-internal.yaml). Its endpoints are
+    # unauthenticated by design: POST /internal/tokens hands out a token that speaks for this
+    # participant, and /providers rewrites the TM Forum backends the facade routes to. Serving them on
+    # a second listener, and setting facade.internal-port to it, means a request that arrives on the
+    # public listener is refused by this service (InternalApiPortFilter) rather than relying entirely
+    # on an ingress allow-list that lives in another repository. Uncomment both, together, and keep the
+    # internal port off the ingress:
+    #
+    # netty:
+    #   listeners:
+    #     public:
+    #       port: 8080
+    #     internal:
+    #       port: 8090
+
   metrics:
     enabled: true
     export:
@@ -15,26 +30,26 @@ micronaut:
   # HTTP clients for the consumed TM Forum APIs
   http:
     services:
-      product-order:
-        path: "/tmf-api/productOrderingManagement/v4"
-        url: http://localhost:8081
-        read-timeout: 30
       product-catalog:
         path: "/tmf-api/productCatalogManagement/v4"
         url: http://localhost:8082
         read-timeout: 30
+        connect-timeout: 5
       product-inventory:
         path: "/tmf-api/productInventory/v4"
         url: http://localhost:8085
         read-timeout: 30
+        connect-timeout: 5
       party:
         path: "/tmf-api/party/v4"
         url: http://localhost:8083
         read-timeout: 30
+        connect-timeout: 5
       agreement:
         path: "/tmf-api/agreementManagement/v4"
         url: http://localhost:8084
         read-timeout: 30
+        connect-timeout: 5
 
 http:
   client:
@@ -48,17 +63,28 @@ http:
 
 endpoints:
   all:
+    # Management endpoints live on their own port, off the public listener. Everything except the two
+    # below stays 'sensitive' (401 without credentials).
     port: 9090
+  # The Prometheus scrape endpoint is sensitive by default, which makes the metrics unscrapeable; it
+  # carries no request data, and this port is not published.
+  prometheus:
+    sensitive: false
+  health:
+    sensitive: false
 
 # facade specific configuration
 facade:
+  # Port of the internal listener configured under micronaut.server.netty.listeners above. Set it to
+  # enable the internal-API port isolation; while it is unset the service warns at startup that the
+  # internal API is reachable on the public listener.
+  # internal-port: 8090
   # public base url of this facade, used to build the self-description urls the contracts point back at
   self-url: http://localhost:8080
-  # self-description identifiers of the two parties of a bilateral contract
+  # self-description identifier of the provider party, used as the producedBy of a data resource
+  # when the resolved provider carries none of its own
   provider:
     self-description: ${facade.self-url}/participants/provider
-  consumer:
-    self-description: ${facade.self-url}/participants/consumer
   # TM Forum party characteristic that carries the participant did
   party:
     did-characteristic: "did"
@@ -75,7 +101,11 @@ facade:
   #   oid4vp.client-id / oid4vp.scopes when unset.
   providers:
     default:
-      tmforum-base-url: http://localhost:8080
+      # The default provider reads through the generated clients (micronaut.http.services.* above), so
+      # this value is unused for it - it is here because the entry is required. Do NOT copy it as the
+      # starting point for a second provider: a non-default provider IS read over this url, and this
+      # one points at the facade's own port.
+      tmforum-base-url: http://localhost:8082
   # provider-registry mode (REQUIREMENTS.md §11.8). Default (static): providers come only from the
   # facade.providers.* config above. Set persistent=true to manage providers at runtime through the
   # admin /providers API, backed by PostgreSQL (Micronaut Data JDBC). In persistent mode an empty
@@ -95,3 +125,15 @@ facade:
   #       enabled: true
   provider-registry:
     persistent: false
+    # How often a replica re-reads the provider table in persistent mode. This is the upper bound on
+    # how long a write made through the admin API on one replica stays invisible to the others.
+    refresh-interval: 30s
+
+# OID4VP authentication of outbound TM Forum calls, and the internal token endpoint. Off by default;
+# see Oid4VpConfiguration for the full set of properties.
+oid4vp:
+  enabled: false
+  # Bound the exchange with a verifier: a verifier that accepts the connection and then stalls would
+  # otherwise pin the calling thread indefinitely.
+  connect-timeout: 5s
+  request-timeout: 15s

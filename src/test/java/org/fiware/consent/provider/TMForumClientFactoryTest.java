@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.provider;
 
 import org.fiware.consent.auth.Oid4VpConfiguration;
@@ -57,9 +73,52 @@ class TMForumClientFactoryTest {
     }
 
     @Test
-    void forProvider_cachesTheRepositoryPerProviderKey() {
+    void forProvider_cachesTheRepositoryPerResolvedProvider() {
         assertSame(factory.forProvider(PROVIDER_A), factory.forProvider(PROVIDER_A),
                 "The same provider resolves to the same (cached) repository.");
+    }
+
+    @Test
+    void forProvider_rebuildsTheRepositoryWhenTheProvidersBackendMoves() {
+        TMForumBackedRepository before = factory.forProvider(PROVIDER_A);
+        ProviderConfig movedToANewBackend = new ProviderConfig(
+                PROVIDER_A.key(), "http://tm-forum-api.provider-a-new.svc:8080", null, null, null);
+
+        // A cache keyed on the provider key alone captured the base url on first use, so a
+        // PUT /providers/provider-a answered 200 while every request kept going to the old backend.
+        assertNotSame(before, factory.forProvider(movedToANewBackend),
+                "A provider whose resolved configuration changed must not be served from the old client.");
+    }
+
+    @Test
+    void forProvider_rebuildsTheRepositoryWhenTheProvidersOid4vpIdentityChanges() {
+        ProviderConfig withScope = new ProviderConfig(
+                PROVIDER_A.key(), PROVIDER_A.tmforumBaseUrl(), null, "client-1", java.util.List.of("tmforum:read"));
+        ProviderConfig withAnotherScope = new ProviderConfig(
+                PROVIDER_A.key(), PROVIDER_A.tmforumBaseUrl(), null, "client-1", java.util.List.of("tmforum:write"));
+
+        assertNotSame(factory.forProvider(withScope), factory.forProvider(withAnotherScope),
+                "The credential presented to a backend is part of what the cached client is bound to.");
+    }
+
+    @Test
+    void evict_dropsEverythingCachedForAProviderKey() {
+        TMForumBackedRepository before = factory.forProvider(PROVIDER_A);
+        TMForumBackedRepository otherProvider = factory.forProvider(PROVIDER_B);
+
+        factory.evict(PROVIDER_A.key());
+
+        assertNotSame(before, factory.forProvider(PROVIDER_A),
+                "An evicted provider is rebuilt on the next request.");
+        assertSame(otherProvider, factory.forProvider(PROVIDER_B),
+                "Evicting one provider leaves the others cached.");
+    }
+
+    @Test
+    void evict_isANoOpForAProviderThatWasNeverCached() {
+        factory.evict("never-used");
+
+        assertNotNull(factory.forProvider(PROVIDER_A), "the factory stays usable");
     }
 
     @Test

@@ -2,11 +2,15 @@ name: Test
 
 on:
   push:
+  # Also on pull_request: with push only, nothing verified the merge result before it landed, and a
+  # PR from a fork was never tested at all.
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -15,6 +19,9 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+
+      - name: Check code style and license
+        run: mvn clean spotless:check
 
       - name: Run tests
         run: |

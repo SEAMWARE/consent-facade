@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.auth;
 
 import org.bouncycastle.jce.ECNamedCurveTable;
@@ -14,8 +30,11 @@ import java.security.interfaces.ECPrivateKey;
  * <a href="https://w3c-ccg.github.io/did-key-spec/">W3C did:key specification</a>. Used when the
  * holder identity is not configured explicitly.
  *
- * <p>Supported: EC P-256 (secp256r1) and P-384 (secp384r1). Adapted from
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Supported: EC P-256 (secp256r1) and P-384 (secp384r1).
+ *
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE}.
  */
 public final class DidKeyGenerator {
 
