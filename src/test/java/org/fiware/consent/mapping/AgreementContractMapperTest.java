@@ -112,6 +112,9 @@ class AgreementContractMapperTest {
         assertEquals("use", policy.getPermission().get(0).getAction(), "The permission action is carried over.");
         assertNotNull(policy.getProhibition(), "prohibition is always a (possibly empty) array - the consent-manager maps over it.");
         assertTrue(policy.getProhibition().isEmpty(), "an EDC policy without a prohibition maps to an empty prohibition list.");
+        assertEquals("urn:asset:1", policy.getPermission().get(0).getAssetTarget(),
+                "The source ODRL target (the asset URI) is preserved in assetTarget so a data-plane "
+                        + "enforcer can match it against the requested resource.");
     }
 
     @Test

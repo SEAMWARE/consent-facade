@@ -7,6 +7,7 @@ import io.micronaut.http.client.HttpClient;
 import io.micronaut.http.client.annotation.Client;
 import io.micronaut.http.client.exceptions.HttpClientResponseException;
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest;
+import org.fiware.consent.internal.model.ProviderVO;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +33,8 @@ class ProviderAdminControllerTest {
     @Client("/")
     HttpClient client;
 
-    private static ProviderRepresentation provider(String key, String tmforumBaseUrl) {
-        return new ProviderRepresentation(key, tmforumBaseUrl, null, null, null);
+    private static ProviderVO provider(String key, String tmforumBaseUrl) {
+        return new ProviderVO().key(key).tmforumBaseUrl(tmforumBaseUrl);
     }
 
     private HttpStatus statusOf(HttpRequest<?> request) {
@@ -52,9 +53,9 @@ class ProviderAdminControllerTest {
                 statusOf(HttpRequest.POST("/providers", provider("admin-create", "http://tmf.admin-create:8080"))),
                 "Creating a provider returns 201.");
 
-        ProviderRepresentation fetched = client.toBlocking()
-                .retrieve(HttpRequest.GET("/providers/admin-create"), ProviderRepresentation.class);
-        assertEquals("http://tmf.admin-create:8080", fetched.tmforumBaseUrl(), "The created provider is retrievable.");
+        ProviderVO fetched = client.toBlocking()
+                .retrieve(HttpRequest.GET("/providers/admin-create"), ProviderVO.class);
+        assertEquals("http://tmf.admin-create:8080", fetched.getTmforumBaseUrl(), "The created provider is retrievable.");
     }
 
     @Test
@@ -86,9 +87,9 @@ class ProviderAdminControllerTest {
                 statusOf(HttpRequest.PUT("/providers/admin-put", provider("ignored-body-key", "http://tmf.put:8080"))),
                 "PUT upserts and returns 200.");
 
-        ProviderRepresentation fetched = client.toBlocking()
-                .retrieve(HttpRequest.GET("/providers/admin-put"), ProviderRepresentation.class);
-        assertEquals("admin-put", fetched.key(), "The path key wins over the body key.");
+        ProviderVO fetched = client.toBlocking()
+                .retrieve(HttpRequest.GET("/providers/admin-put"), ProviderVO.class);
+        assertEquals("admin-put", fetched.getKey(), "The path key wins over the body key.");
     }
 
     @Test
@@ -116,25 +117,27 @@ class ProviderAdminControllerTest {
 
     @Test
     void post_persistsPerProviderOid4vpClientIdAndScopes() {
-        ProviderRepresentation provider = new ProviderRepresentation(
-                "admin-oid4vp", "http://tmf.admin-oid4vp:8080", null, "provider-client",
-                java.util.List.of("openid", "tmforum:read"));
+        ProviderVO provider = new ProviderVO()
+                .key("admin-oid4vp")
+                .tmforumBaseUrl("http://tmf.admin-oid4vp:8080")
+                .clientId("provider-client")
+                .scopes(java.util.List.of("openid", "tmforum:read"));
         client.toBlocking().exchange(HttpRequest.POST("/providers", provider));
 
-        ProviderRepresentation fetched = client.toBlocking()
-                .retrieve(HttpRequest.GET("/providers/admin-oid4vp"), ProviderRepresentation.class);
-        assertEquals("provider-client", fetched.clientId(), "The provider's OID4VP client_id round-trips.");
-        assertEquals(java.util.List.of("openid", "tmforum:read"), fetched.scopes(),
+        ProviderVO fetched = client.toBlocking()
+                .retrieve(HttpRequest.GET("/providers/admin-oid4vp"), ProviderVO.class);
+        assertEquals("provider-client", fetched.getClientId(), "The provider's OID4VP client_id round-trips.");
+        assertEquals(java.util.List.of("openid", "tmforum:read"), fetched.getScopes(),
                 "The provider's OID4VP scopes round-trip through the space-delimited column.");
     }
 
     @Test
     void list_includesTheSeededDefault() {
-        ProviderRepresentation[] providers = client.toBlocking()
-                .retrieve(HttpRequest.GET("/providers"), ProviderRepresentation[].class);
+        ProviderVO[] providers = client.toBlocking()
+                .retrieve(HttpRequest.GET("/providers"), ProviderVO[].class);
 
         assertTrue(java.util.Arrays.stream(providers)
-                        .anyMatch(p -> p.key().equals(ProviderRegistry.DEFAULT_PROVIDER_KEY)),
+                        .anyMatch(p -> p.getKey().equals(ProviderRegistry.DEFAULT_PROVIDER_KEY)),
                 "Listing providers includes the seeded default.");
     }
 }

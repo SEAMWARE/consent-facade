@@ -364,6 +364,18 @@ components:
           type: string
         target:
           type: string
+          description: >-
+            The rule target as the consent-manager expects it - the contract's service-offering URL.
+            The consent-manager only reads a contract's data resources for rules whose target is
+            contained in the contract's `serviceOffering`, so the projection normalizes every rule to
+            that URL. Use `assetTarget` for the target the source agreement actually carried.
+        assetTarget:
+          type: string
+          description: >-
+            The ODRL target as written by the source agreement (typically an asset URI), preserved
+            verbatim before `target` is normalized to the service offering. This is what identifies
+            the concrete data object a rule governs and is what a data-plane enforcer (e.g. the
+            consent OwnerResolver) matches against the requested resource.
         action:
           type: string
         assigner:

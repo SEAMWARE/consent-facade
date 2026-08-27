@@ -36,6 +36,50 @@ endpoints mirror exactly what the consent-manager's contract-service client call
 > `{participantId}`, `{providerId}` and `{consumerId}` are the participants' self-description identifiers, base64-encoded,
 > exactly as the consent-manager passes them.
 
+### Internal endpoints
+
+Defined in their own spec, [`api/consent-facade-internal.yaml`](api/consent-facade-internal.yaml) -
+separate from `api/consent-facade.yaml` (the contract towards the consent-manager) and
+**never published**:
+
+| Method & path | Purpose |
+|---|---|
+| `POST /internal/tokens` | mint an OID4VP access token for a configured audience |
+| `GET|POST|PUT|DELETE /providers[/{key}]` | runtime provider registry (only with the persistent registry) |
+
+`POST /internal/tokens` lets components that do not implement OID4VP - notably the Go consent-plugin -
+authenticate as this participant:
+
+```
+POST /internal/tokens          { "audience": "consent-manager" }
+200                            { "access_token": "…", "token_type": "Bearer", "expires_in": 3540 }
+```
+
+The `audience` is a **name** resolved against `oid4vp.token-targets`, never a caller-supplied URL: a
+caller that could name any host would make the facade present this participant's credential to it.
+Unknown or blank audience ⇒ `400`; credential refused ⇒ `403`; verifier unreachable ⇒ `502`; broken
+local OID4VP setup ⇒ `500`. Tokens are cached per audience and refreshed before expiry, and
+concurrent misses are coalesced onto one presentation. Only active when `oid4vp.enabled=true`. See
+[`doc/adr/0003`](doc/adr/0003-token-endpoint-not-consent-proxy.md).
+
+Both specs generate Micronaut server interfaces at build time; the internal one into
+`org.fiware.consent.internal.api` / `.model`, implemented by `InternalTokenController` and
+`ProviderAdminController`.
+
+Example configuration:
+
+```yaml
+oid4vp:
+  enabled: true
+  token-targets:
+    # `client-id` is the verifier SERVICE the token is for; `scope` selects that
+    # service's credential policy (here: present a participant credential).
+    - audience: consent-manager
+      url: https://verifier.dataspace-authority.org
+      client-id: consent-manager
+      scope: [ "participant" ]
+```
+
 ## Tech stack
 
 * [Micronaut](https://micronaut.io/) 4 (Java 21)

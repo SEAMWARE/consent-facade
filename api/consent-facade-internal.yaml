@@ -1,0 +1,242 @@
+openapi: 3.0.3
+info:
+  title: Consent Facade internal API
+  description: |
+    **Internal** API of the Consent Facade. Deliberately kept separate from
+    [`consent-facade.yaml`](consent-facade.yaml), which is the contract *towards
+    the [Prometheus-X / Visions consent-manager](https://github.com/VisionsOfficial/consent-manager)*:
+    nothing here is part of that contract, and nothing here may be published.
+
+    The facade's ingress allow-lists only the read-only self-description paths
+    (`/participants`, `/catalog`); every path in this document must stay off that
+    list and be restricted to its intended caller by NetworkPolicy. The endpoints
+    are unauthenticated - they rely entirely on not being reachable:
+
+    * `POST /internal/tokens` makes the facade present *this participant's*
+      verifiable credential to a configured audience. Anything that reaches it
+      can obtain a token that speaks for this participant.
+    * `/providers` rewrites the TM Forum backends the facade routes to.
+
+    See `doc/adr/0003-token-endpoint-not-consent-proxy.md` for why the token
+    endpoint hands out a token instead of proxying consent traffic.
+  version: 0.0.1
+  contact:
+    name: Stefan Wiedemann
+    email: stefan.wiedemann@fiware.org
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+tags:
+  - name: tokens
+    description: |
+      OID4VP access tokens for the configured audiences, for components that do not
+      implement OID4VP themselves (notably the Go consent-plugin). Active only when
+      `oid4vp.enabled=true`.
+  - name: providers
+    description: |
+      Runtime CRUD over the `providerKey -> TM Forum backend` mappings the facade routes
+      on. Active only with the persistent provider registry.
+paths:
+  /internal/tokens:
+    post:
+      tags:
+        - tokens
+      operationId: createToken
+      summary: Mint an OID4VP access token for a configured audience.
+      description: |
+        Obtains an access token for the given audience by presenting this participant's
+        verifiable credential over OID4VP, and returns it OAuth2-shaped.
+
+        The `audience` is a **name** resolved against the configured token targets
+        (`oid4vp.token-targets`), never a caller-supplied URL: a caller able to name an
+        arbitrary host could make the facade present this participant's credential -
+        a verifiable presentation naming it as holder - to that host on request.
+
+        Tokens are cached per audience and refreshed before they expire; concurrent
+        misses for the same audience are coalesced onto a single presentation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: The access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: The audience is missing, blank, or not configured as a token target.
+        '403':
+          description: |
+            The verifier refused the presented credential (unknown issuer, expired, not in
+            the trusted-participants list). Terminal - retrying will not help.
+        '500':
+          description: |
+            This facade's own OID4VP setup is broken (holder key or credential files
+            unreadable). Terminal.
+        '502':
+          description: |
+            The verifier could not be reached, does not advertise the `vp_token` grant, or
+            returned no token. Retryable.
+  /providers:
+    get:
+      tags:
+        - providers
+      operationId: listProviders
+      summary: All registered providers.
+      responses:
+        '200':
+          description: The registered providers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Provider'
+    post:
+      tags:
+        - providers
+      operationId: createProvider
+      summary: Register a new provider.
+      description: The provider is created under the `key` carried in the body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Provider'
+      responses:
+        '201':
+          description: The created provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '400':
+          description: |
+            The provider is invalid - the key is missing or contains the provider-scoped-id
+            separator, or the TM Forum base url is missing.
+        '409':
+          description: A provider is already registered under that key.
+  /providers/{key}:
+    get:
+      tags:
+        - providers
+      operationId: getProvider
+      summary: A single provider by key.
+      parameters:
+        - $ref: '#/components/parameters/ProviderKey'
+      responses:
+        '200':
+          description: The provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '404':
+          description: No provider is registered under that key.
+    put:
+      tags:
+        - providers
+      operationId: upsertProvider
+      summary: Create or replace the provider under the path key.
+      description: The body's `key` is ignored - the path key wins.
+      parameters:
+        - $ref: '#/components/parameters/ProviderKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Provider'
+      responses:
+        '200':
+          description: The persisted provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Provider'
+        '400':
+          description: The provider is invalid.
+    delete:
+      tags:
+        - providers
+      operationId: deleteProvider
+      summary: Remove a provider.
+      parameters:
+        - $ref: '#/components/parameters/ProviderKey'
+      responses:
+        '204':
+          description: The provider was removed.
+        '400':
+          description: |
+            The default provider cannot be removed - it is the routing fallback and must
+            always exist.
+        '404':
+          description: No provider is registered under that key.
+components:
+  parameters:
+    ProviderKey:
+      name: key
+      in: path
+      required: true
+      description: The provider key the facade routes on.
+      schema:
+        type: string
+  schemas:
+    TokenRequest:
+      type: object
+      required:
+        - audience
+      properties:
+        audience:
+          type: string
+          description: |
+            Name of the configured token target to obtain a token for. Not a URL - see the
+            endpoint description.
+          example: consent-manager
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: The token to present in the `Authorization` header.
+        token_type:
+          type: string
+          description: The OAuth2 token type.
+          example: Bearer
+        expires_in:
+          type: integer
+          format: int64
+          description: The token's remaining lifetime in seconds.
+          example: 3540
+    Provider:
+      type: object
+      required:
+        - key
+        - tmforumBaseUrl
+      properties:
+        key:
+          type: string
+          description: The provider key (ignored on `PUT`, where the path key wins).
+        tmforumBaseUrl:
+          type: string
+          description: Base url of this provider's TM Forum backend.
+        selfDescription:
+          type: string
+          description: This provider participant's own self-description URL.
+        clientId:
+          type: string
+          description: This provider's OID4VP `client_id`; the facade default is used when absent.
+        scopes:
+          type: array
+          description: This provider's OID4VP scopes; the facade defaults are used when absent.
+          items:
+            type: string

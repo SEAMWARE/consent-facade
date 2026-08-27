@@ -48,6 +48,15 @@ public class Oid4VpConfiguration {
     private String clientId = "";
     /** Default OID4VP scopes requested for TM Forum access; per-provider override planned. */
     private List<String> scopes = List.of();
+    /**
+     * The audiences the facade may obtain access tokens for via {@code POST /internal/tokens}.
+     *
+     * <p>Deliberately a closed list of <em>named</em> targets rather than a caller-supplied URL: a
+     * caller that could name an arbitrary host would make the facade present the participant's
+     * credential - a verifiable presentation naming it as holder - to that host on request. See
+     * ADR-0003 (doc/adr/0003-token-endpoint-not-consent-proxy.md).
+     */
+    private List<TokenTarget> tokenTargets = List.of();
 
     /**
      * The holder identity. {@link #holderId} is optional: when absent, a {@code did:key} is derived
@@ -61,6 +70,24 @@ public class Oid4VpConfiguration {
     @ConfigurationProperties("holder")
     @Introspected
     public record Holder(@Nullable URI holderId, String keyType, String keyPath, String signatureAlgorithm) {
+    }
+
+    /**
+     * A target the facade may obtain an OID4VP access token for, addressed by {@link #audience}.
+     *
+     * @param audience      the name callers use to ask for a token for this target; must be unique
+     * @param url           the verifier/service base URL OIDC discovery runs against
+     * @param clientId      the OID4VP {@code client_id} to present, or {@code null} for none
+     * @param scope         the scopes to request; {@code null} or empty ⇒ the verifier's default scope
+     * @param discoveryPath sub-path the target serves OIDC discovery under, inserted before
+     *                      {@code /.well-known/openid-configuration}. Empty or {@code null} for the
+     *                      spec location at the host root; a FIWARE VCVerifier serves it per service
+     *                      (e.g. {@code /services/consent-manager}), and pointing at the root there
+     *                      yields a 404 the client cannot parse.
+     */
+    @Introspected
+    public record TokenTarget(String audience, URI url, @Nullable String clientId,
+                              @Nullable List<String> scope, @Nullable String discoveryPath) {
     }
 
     /** Condition matching when OID4VP authentication is {@link Oid4VpConfiguration#enabled}. */

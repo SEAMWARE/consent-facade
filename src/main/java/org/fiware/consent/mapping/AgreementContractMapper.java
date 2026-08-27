@@ -200,6 +200,11 @@ public class AgreementContractMapper {
      *       {@code serviceOffering} (a string-containment check, {@code REQUIREMENTS.md} §3.1). The
      *       EDC writes asset URNs, so every rule is retargeted to the one bundling offering
      *       (all-or-nothing, §5); without this the data chain never matches.</li>
+     *   <li>The source target is <em>not</em> discarded: it is preserved verbatim in
+     *       {@code assetTarget} before {@code target} is normalized. That asset URI is what
+     *       identifies the concrete data object a rule governs, so a data-plane enforcer (e.g. the
+     *       consent OwnerResolver) can match it against the requested resource. Consumers that do
+     *       not know the field simply ignore it, so this stays backward compatible.</li>
      * </ul>
      */
     private OdrlPolicyVO retargetRules(OdrlPolicyVO policy, String serviceOfferingUrl) {
@@ -220,7 +225,28 @@ public class AgreementContractMapper {
         }
         rules.stream()
                 .filter(Objects::nonNull)
-                .forEach(rule -> rule.setTarget(serviceOfferingUrl));
+                .forEach(rule -> {
+                    preserveAssetTarget(rule);
+                    rule.setTarget(serviceOfferingUrl);
+                });
+    }
+
+    /**
+     * Copies a rule's original {@code target} into {@code assetTarget} so the asset URI the source
+     * agreement carried survives the normalization of {@code target} to the service-offering URL.
+     * An already-set {@code assetTarget} wins (the source was explicit about it); a blank original
+     * target leaves the field unset rather than storing an empty string.
+     *
+     * @param rule the rule about to be retargeted
+     */
+    private static void preserveAssetTarget(OdrlRuleVO rule) {
+        if (rule.getAssetTarget() != null && !rule.getAssetTarget().isBlank()) {
+            return;
+        }
+        String sourceTarget = rule.getTarget();
+        if (sourceTarget != null && !sourceTarget.isBlank()) {
+            rule.setAssetTarget(sourceTarget);
+        }
     }
 
     private Optional<OdrlPolicyVO> toPolicy(Object rawPolicy) {
