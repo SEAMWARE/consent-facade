@@ -1,5 +1,6 @@
 package org.fiware.consent.provider;
 
+import io.micronaut.http.client.DefaultHttpClientConfiguration;
 import io.micronaut.http.client.HttpClient;
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Singleton;
@@ -11,11 +12,14 @@ import org.fiware.consent.tmforum.TMForumBackedRepository;
 
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.time.Duration;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Produces the {@link TMForumBackedRepository} that reads a given provider's TM Forum backend.
@@ -29,29 +33,45 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>The {@link ProviderRegistry#DEFAULT_PROVIDER_KEY default} provider keeps using the injected,
  *       context-managed repository (the generated clients) - unchanged behaviour.</li>
  *   <li>Every other provider gets a repository over an {@link HttpTMForumApis} on a client created
- *       for its base url; clients (per base url) and repositories (per provider key) are cached.</li>
+ *       for its base url.</li>
  * </ul>
  *
- * <p>Until Phase 4 routes requests by provider, only the default branch is exercised at runtime; the
- * low-level branch is covered by tests and becomes live once a second provider is registered.
+ * <h2>Caching</h2>
+ *
+ * <p>Repositories are cached on the whole resolved {@link ProviderConfig}, not on the provider key: a
+ * key-only cache captured the base url, client id and scopes on first use, so a
+ * {@code PUT /providers/{key}} that moved a provider onto a new TM Forum backend answered {@code 200}
+ * while every subsequent request still went to the old one, for the lifetime of the process.
+ * {@code ProviderConfig} is a record, so value equality does that for free. {@link #evict(String)}
+ * additionally drops the superseded entries - and closes the clients they no longer reference - so a
+ * long-lived process does not accumulate them.
  */
 @Slf4j
 @Singleton
 public class TMForumClientFactory {
 
+    /**
+     * How long a low-level client waits for the TCP connection to a provider's backend. Without it,
+     * {@code HttpClient.create} leaves the connect attempt unbounded.
+     */
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    /** How long a low-level client waits for a provider's backend to answer; matches {@code application.yaml}. */
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
+
     private final TMForumBackedRepository defaultRepository;
     private final Optional<AuthHandler> authHandler;
     private final Oid4VpConfiguration oid4VpConfiguration;
     private final Map<String, HttpClient> clientsByBaseUrl = new ConcurrentHashMap<>();
-    private final Map<String, TMForumBackedRepository> repositoriesByProviderKey = new ConcurrentHashMap<>();
+    private final Map<ProviderConfig, TMForumBackedRepository> repositoriesByProvider = new ConcurrentHashMap<>();
 
     /**
      * @param defaultRepository   the context-managed repository over the generated clients, used for
      *                            the default provider
      * @param authHandler         the OID4VP auth handler (empty when OID4VP is disabled) used to
      *                            authenticate non-default providers' low-level requests
-     * @param oid4VpConfiguration supplies the default OID4VP {@code client_id}/scopes (per-provider
-     *                            override is planned via the admin API, implementation-plan.md step 4)
+     * @param oid4VpConfiguration supplies the default OID4VP {@code client_id}/scopes, used for a
+     *                            provider that overrides neither
      */
     public TMForumClientFactory(TMForumBackedRepository defaultRepository,
                                 Optional<AuthHandler> authHandler,
@@ -72,12 +92,29 @@ public class TMForumClientFactory {
         if (ProviderRegistry.DEFAULT_PROVIDER_KEY.equals(provider.key())) {
             return defaultRepository;
         }
-        return repositoriesByProviderKey.computeIfAbsent(provider.key(),
-                key -> new TMForumBackedRepository(new HttpTMForumApis(
-                        clientFor(provider.tmforumBaseUrl()),
+        return repositoriesByProvider.computeIfAbsent(provider,
+                config -> new TMForumBackedRepository(new HttpTMForumApis(
+                        clientFor(config.tmforumBaseUrl()),
                         authHandler,
-                        resolveClientId(provider),
-                        resolveScopes(provider))));
+                        resolveClientId(config),
+                        resolveScopes(config))));
+    }
+
+    /**
+     * Drops everything cached for a provider key, closing any client no longer referenced.
+     *
+     * <p>Called by the {@link PersistentProviderRegistry} when a provider is updated or removed, so a
+     * superseded repository and its connection pool do not linger for the lifetime of the process.
+     *
+     * @param providerKey the key whose cached repositories are dropped
+     */
+    public void evict(String providerKey) {
+        boolean evicted = repositoriesByProvider.keySet()
+                .removeIf(provider -> provider.key().equals(providerKey));
+        if (evicted) {
+            log.info("Dropped the cached TM Forum client(s) of provider '{}'.", providerKey);
+        }
+        closeUnreferencedClients();
     }
 
     /** The provider's OID4VP {@code client_id}, falling back to the facade default. */
@@ -100,18 +137,44 @@ public class TMForumClientFactory {
     }
 
     private static HttpClient createClient(String baseUrl) {
+        DefaultHttpClientConfiguration configuration = new DefaultHttpClientConfiguration();
+        configuration.setConnectTimeout(CONNECT_TIMEOUT);
+        configuration.setReadTimeout(READ_TIMEOUT);
         try {
-            return HttpClient.create(new URL(baseUrl));
+            return HttpClient.create(new URL(baseUrl), configuration);
         } catch (MalformedURLException e) {
             throw new IllegalArgumentException("A provider's TM Forum base url is not a valid URL: " + baseUrl, e);
+        }
+    }
+
+    /** Closes and forgets every client no longer used by a cached repository. */
+    private void closeUnreferencedClients() {
+        Set<String> baseUrlsInUse = repositoriesByProvider.keySet().stream()
+                .map(ProviderConfig::tmforumBaseUrl)
+                .collect(Collectors.toSet());
+        Iterator<Map.Entry<String, HttpClient>> clients = clientsByBaseUrl.entrySet().iterator();
+        while (clients.hasNext()) {
+            Map.Entry<String, HttpClient> client = clients.next();
+            if (!baseUrlsInUse.contains(client.getKey())) {
+                closeQuietly(client.getKey(), client.getValue());
+                clients.remove();
+            }
+        }
+    }
+
+    private static void closeQuietly(String baseUrl, HttpClient client) {
+        try {
+            client.close();
+        } catch (RuntimeException closeFailure) {
+            log.warn("Could not close the TM Forum client for {}.", baseUrl, closeFailure);
         }
     }
 
     /** Closes the low-level clients created for non-default providers on shutdown. */
     @PreDestroy
     void close() {
-        clientsByBaseUrl.values().forEach(HttpClient::close);
+        clientsByBaseUrl.forEach(TMForumClientFactory::closeQuietly);
         clientsByBaseUrl.clear();
-        repositoriesByProviderKey.clear();
+        repositoriesByProvider.clear();
     }
 }

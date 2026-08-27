@@ -16,7 +16,13 @@ info:
 
     Identifiers used as `{participantId}`, `{providerId}` and `{consumerId}`
     are the participants' self-description identifiers, base64-encoded, exactly
-    as the consent-manager passes them.
+    as the consent-manager passes them. The encoding is required, not sniffed:
+    any alphanumeric slug whose length is a multiple of four is itself valid
+    base64, so a value that is not encoded cannot be told apart from one that
+    is, and is rejected with `400` rather than silently matching nothing.
+
+    Identifiers the facade mints (`{contractId}` and every `/catalog/*` id) are
+    provider-scoped (`providerKey~localId`) and are echoed back verbatim.
   version: 0.0.1
   contact:
     name: Stefan Wiedemann
@@ -49,6 +55,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BilateralContractList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /bilaterals/{contractId}:
     get:
       tags:
@@ -64,41 +74,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BilateralContract'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /contracts/for/{participantId}:
     get:
       tags:
         - contracts
       operationId: getEcosystemContractsForParticipant
-      summary: Ecosystem contracts a participant is party to.
+      summary: Ecosystem contracts a participant is party to (not implemented).
+      description: |
+        Declared for completeness; currently always answers `501`. Ecosystem contracts have no
+        TM Forum source yet, and an empty `200` would be indistinguishable from "this participant is
+        party to none".
       parameters:
         - $ref: '#/components/parameters/ParticipantId'
         - $ref: '#/components/parameters/HasSigned'
       responses:
         '200':
-          description: The matching ecosystem contracts.
+          description: The matching ecosystem contracts. Not currently returned - see `501`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EcosystemContractList'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
   /contracts/{contractId}:
     get:
       tags:
         - contracts
       operationId: getEcosystemContract
-      summary: A single ecosystem contract by id.
+      summary: A single ecosystem contract by id (not implemented).
+      description: Declared for completeness; currently always answers `501`.
       parameters:
         - $ref: '#/components/parameters/ContractId'
       responses:
         '200':
-          description: The ecosystem contract.
+          description: The ecosystem contract. Not currently returned - see `501`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EcosystemContract'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
   /verify/{providerId}/{consumerId}:
     get:
       tags:
@@ -115,6 +136,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/VerificationResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /catalog/serviceofferings/{id}:
     get:
       tags:
@@ -134,8 +159,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceOffering'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /catalog/dataresources/{id}:
     get:
       tags:
@@ -151,8 +180,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DataResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /catalog/softwareresources/{id}:
     get:
       tags:
@@ -168,8 +201,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SoftwareResource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
   /participants/{id}:
     get:
       tags:
@@ -188,29 +225,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SelfDescription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/BadGateway'
 components:
   parameters:
     ParticipantId:
       name: participantId
       in: path
       required: true
-      description: Base64-encoded participant self-description identifier.
+      description: Base64-encoded (standard or URL-safe) participant self-description identifier. Required, not optional - a value that is not base64 yields 400.
       schema:
         type: string
     ProviderId:
       name: providerId
       in: path
       required: true
-      description: Base64-encoded data-provider self-description identifier.
+      description: Base64-encoded (standard or URL-safe) data-provider self-description identifier. Required, not optional - a value that is not base64 yields 400.
       schema:
         type: string
     ConsumerId:
       name: consumerId
       in: path
       required: true
-      description: Base64-encoded data-consumer self-description identifier.
+      description: Base64-encoded (standard or URL-safe) data-consumer self-description identifier. Required, not optional - a value that is not base64 yields 400.
       schema:
         type: string
     ContractId:
@@ -240,6 +281,22 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
+    BadRequest:
+      description: |
+        The request carried an identifier the facade will not route on: a participant id that is not
+        base64, or a facade-minted id containing `/`, `?`, `#`, `\` or `..`. The body is the reason.
+      content:
+        text/plain:
+          schema:
+            type: string
+    BadGateway:
+      description: |
+        A provider's TM Forum backend could not be reached, or answered with a failure. The response
+        has no body - the downstream status and message are logged, not forwarded.
+    NotImplemented:
+      description: |
+        The endpoint is declared but not implemented: ecosystem contracts have no TM Forum source yet.
+        Deliberately not an empty list, which would read as "this participant is party to none".
   schemas:
     BilateralContractList:
       type: object

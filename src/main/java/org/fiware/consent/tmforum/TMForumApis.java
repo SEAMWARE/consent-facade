@@ -47,13 +47,6 @@ public interface TMForumApis {
     Mono<OrganizationVO> retrieveOrganization(String id);
 
     /**
-     * @param offset index of the first organization to return
-     * @param limit  maximum number of organizations to return
-     * @return the organizations in the requested page
-     */
-    Flux<OrganizationVO> listOrganizations(int offset, int limit);
-
-    /**
      * @param id the product-offering id
      * @return the product offering, or empty on {@code 404}
      */

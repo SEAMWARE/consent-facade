@@ -14,8 +14,11 @@ import java.security.interfaces.ECPrivateKey;
  * <a href="https://w3c-ccg.github.io/did-key-spec/">W3C did:key specification</a>. Used when the
  * holder identity is not configured explicitly.
  *
- * <p>Supported: EC P-256 (secp256r1) and P-384 (secp384r1). Adapted from
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Supported: EC P-256 (secp256r1) and P-384 (secp384r1).
+ *
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE} and {@code LICENSE-Apache-2.0}.
  */
 public final class DidKeyGenerator {
 

@@ -25,16 +25,24 @@ endpoints mirror exactly what the consent-manager's contract-service client call
 |---|---|
 | `GET /bilaterals/for/{participantId}?hasSigned=true` | bilateral contracts a participant is party to |
 | `GET /bilaterals/{contractId}` | a single bilateral contract |
-| `GET /contracts/for/{participantId}?hasSigned=true` | ecosystem contracts a participant is party to |
-| `GET /contracts/{contractId}` | a single ecosystem contract |
+| `GET /contracts/for/{participantId}?hasSigned=true` | ecosystem contracts a participant is party to - **`501`, not implemented** |
+| `GET /contracts/{contractId}` | a single ecosystem contract - **`501`, not implemented** |
 | `GET /verify/{providerId}/{consumerId}` | verify a signed contract exists between two participants |
 | `GET /catalog/serviceofferings/{id}` | service-offering self-description (`dataResources` / `softwareResources`) |
 | `GET /catalog/dataresources/{id}` | data-resource self-description |
 | `GET /catalog/softwareresources/{id}` | software-resource self-description (its `name` becomes the purpose) |
 | `GET /participants/{id}` | participant self-description (`legalName`, `legalPerson.legalAddress`) |
 
-> `{participantId}`, `{providerId}` and `{consumerId}` are the participants' self-description identifiers, base64-encoded,
-> exactly as the consent-manager passes them.
+> `{participantId}`, `{providerId}` and `{consumerId}` are the participants' self-description identifiers, base64-encoded
+> (standard or URL-safe alphabet), exactly as the consent-manager passes them. Encoding is **required**, not sniffed: a
+> value that is not base64 gets a `400`. It cannot be guessed - any alphanumeric slug whose length is a multiple of four
+> is itself valid base64 and would decode to a different string, silently matching nothing.
+
+> Ids the facade mints (`{contractId}`, all `/catalog/*` ids) are provider-scoped (`providerKey~localId`) and are echoed
+> back verbatim; one carrying `/`, `?`, `#`, `\` or `..` is refused with a `400`.
+
+> A failure reaching a provider's TM Forum backend is reported as `502`, with the backend's status and body kept out of
+> the response.
 
 ### Internal endpoints
 
@@ -59,7 +67,10 @@ The `audience` is a **name** resolved against `oid4vp.token-targets`, never a ca
 caller that could name any host would make the facade present this participant's credential to it.
 Unknown or blank audience ⇒ `400`; credential refused ⇒ `403`; verifier unreachable ⇒ `502`; broken
 local OID4VP setup ⇒ `500`. Tokens are cached per audience and refreshed before expiry, and
-concurrent misses are coalesced onto one presentation. Only active when `oid4vp.enabled=true`. See
+concurrent misses are coalesced onto one presentation; `expires_in` is the token's real remaining
+lifetime, so a caller may cache on it. The same cache backs the outbound TM Forum calls, so those cost
+one authenticated request rather than an unauthorized round trip plus a full presentation each. Only
+active when `oid4vp.enabled=true`. See
 [`doc/adr/0003`](doc/adr/0003-token-endpoint-not-consent-proxy.md).
 
 Both specs generate Micronaut server interfaces at build time; the internal one into
@@ -86,6 +97,7 @@ oid4vp:
 * API-first: server interfaces and TM Forum clients are generated from OpenAPI with the
   [openapi-generator](https://openapi-generator.tech/) + [kokuwa micronaut codegen](https://github.com/kokuwaio/micronaut-openapi-codegen)
 * [jib](https://github.com/GoogleContainerTools/jib) for the container image
+* [Micrometer](https://micrometer.io/) with a Prometheus registry
 
 Package layout (following [`fiware/contract-management`](https://github.com/fiware/contract-management)):
 
@@ -97,7 +109,9 @@ src/main/java/org/fiware/consent/
   facade/                          # controllers implementing the generated server API
   tmforum/                         # adapters over the generated TM Forum clients (TMForumBackedRepository)
   mapping/                         # mappers TM Forum <-> contract model
-  exception/                       # exception handlers
+  provider/                        # provider registry, admin API and per-provider client factory
+  auth/                            # OID4VP authentication and the internal token endpoint
+  exception/                       # exception handlers (backend failure -> 502, bad id -> 400)
 src/main/resources/application.yaml
 ```
 
@@ -124,7 +138,6 @@ Point it at the TM Forum APIs and set its own public url via `application.yaml` 
 micronaut:
   http:
     services:
-      product-order: { url: http://tm-forum-api:8080 }
       product-catalog: { url: http://tm-forum-api:8080 }
       product-inventory: { url: http://tm-forum-api:8080 }
       party: { url: http://tm-forum-api:8080 }
@@ -144,12 +157,37 @@ Image: `quay.io/wi_stefan/consent-facade`.
 
 ## Status
 
-Initial scaffold: project structure, build, CI and the OpenAPI contract are in place. The controllers/mappers that
-translate TM Forum payloads into the contract and catalog self-descriptions are the next step - see the `facade`,
-`tmforum` and `mapping` packages.
+Implemented and tested: the controllers and mappers that project TM Forum payloads into the contract and catalog
+self-descriptions (`facade`, `tmforum`, `mapping`), multi-provider routing on top of them (`provider`), OID4VP
+authentication of outbound calls and the internal token endpoint (`auth`).
 
-## Requirements & integration notes
+Not implemented: the **ecosystem-contract** endpoints (`GET /contracts/for/{participantId}`, `GET /contracts/{id}`)
+answer `501` - ecosystem contracts have no TM Forum source yet.
 
-**[`REQUIREMENTS.md`](REQUIREMENTS.md)** captures everything needed to continue the implementation: the exact
+## Observability
+
+Management endpoints are served on their own port (`endpoints.all.port`, default `9090`), never on the public listener:
+
+| Path | |
+|---|---|
+| `/health` | liveness/readiness |
+| `/prometheus` | Prometheus scrape endpoint |
+| `/metrics` | metric names and values |
+
+Everything else there (`info`, `beans`, `env`, …) stays *sensitive* and answers `401`.
+
+## Architecture & requirements
+
+**[`REQUIREMENTS.md`](REQUIREMENTS.md)** is the architecture document, not a wish list: it holds the exact
 contract-service API the consent-manager consumes (with source references), the contract/catalog data models, the data
-granularity model, the TM Forum projection, the verified gotchas, and the suggested next-step order. Start there.
+granularity model, the TM Forum projection, the multi-provider design (§11), and the verified gotchas. Around twenty
+Javadoc comments cross-reference its sections, so it is load-bearing - keep it in step with the code.
+
+[`implementation-plan.md`](implementation-plan.md) is the record of how the service was built, kept for the rationale
+behind the decisions rather than as a list of open work.
+
+## Licensing
+
+MIT (see [`LICENSE`](LICENSE)). Six files in `auth/` are adapted from
+[FIWARE/contract-management](https://github.com/FIWARE/contract-management) (Apache-2.0); see [`NOTICE`](NOTICE) and
+[`LICENSE-Apache-2.0`](LICENSE-Apache-2.0).

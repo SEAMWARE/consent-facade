@@ -4,9 +4,9 @@ import io.micronaut.context.annotation.ConfigurationProperties;
 import lombok.Data;
 
 /**
- * Configuration of the facade itself: its public base url, the self-description
- * identifiers of the provider/consumer parties and the TM Forum party
- * characteristic carrying the participant did.
+ * Configuration of the facade itself: its public base url, the provider party's self-description
+ * identifier, and the TM Forum characteristics carrying the participant did and the processing
+ * purpose.
  */
 @Data
 @ConfigurationProperties("facade")
@@ -18,9 +18,12 @@ public class FacadeProperties {
      */
     private String selfUrl;
 
+    /**
+     * Self-description identifier of the provider participant, used as the {@code producedBy} of a
+     * data resource when the resolved provider does not carry its own (see {@code REQUIREMENTS.md}
+     * §11.7).
+     */
     private Party provider = new Party();
-
-    private Party consumer = new Party();
 
     private PartyMapping party = new PartyMapping();
 

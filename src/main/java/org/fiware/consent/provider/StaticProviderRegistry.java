@@ -5,6 +5,7 @@ import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,15 +15,14 @@ import java.util.Optional;
  * {@link ProviderRegistry} backed by static configuration ({@code facade.providers.*}, bound as
  * {@link ProviderConfiguration} beans).
  *
- * <p>This is the starting-point implementation of the multi-provider plan
+ * <p>This is the config-only implementation of the multi-provider design
  * ({@code REQUIREMENTS.md} §11.3): providers and their TM Forum endpoints are declared in
- * configuration. A later {@code PersistentProviderRegistry} (plan §11.8) replaces it with a
- * database-backed source and an admin API, without changing the {@link ProviderRegistry} interface
- * the rest of the facade depends on.
+ * configuration and fixed for the lifetime of the process. {@link PersistentProviderRegistry}
+ * (§11.8) is the alternative, selected by {@link ProviderRegistry#PERSISTENT_PROPERTY}, which reads
+ * them from a database and lets the admin API change them at runtime.
  *
- * <p>A {@link ProviderRegistry#DEFAULT_PROVIDER_KEY default} provider is required, so single-provider
- * deployments (and every deployment before provider-keyed routing is wired) always have a provider
- * to fall back to; its absence is a configuration error and fails fast at startup.
+ * <p>A {@link ProviderRegistry#DEFAULT_PROVIDER_KEY default} provider is required, so an un-prefixed
+ * id always resolves; its absence is a configuration error and fails fast at startup.
  *
  * <p>Active unless the {@link ProviderRegistry#PERSISTENT_PROPERTY persistent} registry is selected,
  * so the two never both claim the {@link ProviderRegistry} bean.
@@ -53,7 +53,9 @@ public class StaticProviderRegistry implements ProviderRegistry {
                     "No default provider is configured. Configure at least 'facade.providers."
                             + DEFAULT_PROVIDER_KEY + "' with its TM Forum base url.");
         }
-        this.providersByKey = Map.copyOf(providers);
+        // an unmodifiable LinkedHashMap rather than Map.copyOf: all() is fanned out over by the
+        // participant-scoped lookups, so a stable, configured order keeps their results reproducible
+        this.providersByKey = Collections.unmodifiableMap(providers);
         log.info("Provider registry initialized with {} provider(s): {}.",
                 providersByKey.size(), providersByKey.keySet());
     }
@@ -61,11 +63,6 @@ public class StaticProviderRegistry implements ProviderRegistry {
     @Override
     public Optional<ProviderConfig> byKey(String key) {
         return Optional.ofNullable(providersByKey.get(key));
-    }
-
-    @Override
-    public ProviderConfig defaultProvider() {
-        return providersByKey.get(DEFAULT_PROVIDER_KEY);
     }
 
     @Override

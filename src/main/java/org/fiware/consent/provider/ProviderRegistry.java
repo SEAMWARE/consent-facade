@@ -8,20 +8,21 @@ import java.util.Optional;
  * backend.
  *
  * <p>This is the abstraction the rest of the facade routes through so it can serve many providers
- * from one deployment (multi-provider plan, {@code REQUIREMENTS.md} §11). The interface is stable
- * across implementations: a {@link StaticProviderRegistry} backed by configuration is the starting
- * point, and a database-backed registry with an admin API (plan §11.8) is a later drop-in
- * replacement.
+ * from one deployment (multi-provider design, {@code REQUIREMENTS.md} §11). Two implementations sit
+ * behind it, selected by {@link #PERSISTENT_PROPERTY}: {@link StaticProviderRegistry} reads the
+ * providers from configuration, {@link PersistentProviderRegistry} from a database that the admin API
+ * can change at runtime (§11.8).
  *
  * <p>Every deployment has a {@link #DEFAULT_PROVIDER_KEY default} provider, which preserves the
- * single-provider behaviour and serves as the fallback until per-request routing (plan §11.6) is
- * wired.
+ * single-provider behaviour: an un-prefixed id resolves to it (see
+ * {@link ProviderScopedId#decode(String)}). Resolve it like any other, via
+ * {@link #byKey(String) byKey(DEFAULT_PROVIDER_KEY)}.
  */
 public interface ProviderRegistry {
 
     /**
-     * Key of the default provider. Single-provider deployments configure only this entry, and it is
-     * the fallback used before provider-keyed routing is in place.
+     * Key of the default provider. Single-provider deployments configure only this entry, and an
+     * un-prefixed id decodes to it.
      */
     String DEFAULT_PROVIDER_KEY = "default";
 
@@ -41,13 +42,6 @@ public interface ProviderRegistry {
      * @return the matching provider config, or empty if no provider is registered under {@code key}
      */
     Optional<ProviderConfig> byKey(String key);
-
-    /**
-     * The default provider (registered under {@link #DEFAULT_PROVIDER_KEY}).
-     *
-     * @return the default provider config
-     */
-    ProviderConfig defaultProvider();
 
     /**
      * All registered providers.

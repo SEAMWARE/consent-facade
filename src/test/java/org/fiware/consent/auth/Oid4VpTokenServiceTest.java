@@ -41,8 +41,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Tests for {@link Oid4VpTokenService}: audience resolution against the configured targets, the
- * per-audience cache and its refresh window, and the translation of library failures into
- * retryable/terminal reasons.
+ * per-audience caching it gets from the shared {@link Oid4VpTokenCache} and its refresh window, and
+ * the translation of library failures into retryable/terminal reasons.
  */
 class Oid4VpTokenServiceTest {
 
@@ -93,7 +93,7 @@ class Oid4VpTokenServiceTest {
     @Test
     void rejectsAnAudienceThatIsNotConfigured() {
         Oid4VpTokenService service = new Oid4VpTokenService(
-                mock(OID4VPClient.class), configuration(target()), new MutableClock());
+                mock(OID4VPClient.class), configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         assertThrows(UnknownAudienceException.class, () -> service.tokenFor("something-else"),
                 "only configured audiences may be presented to");
@@ -102,7 +102,7 @@ class Oid4VpTokenServiceTest {
     @Test
     void rejectsEveryAudienceWhenNoneIsConfigured() {
         Oid4VpTokenService service = new Oid4VpTokenService(
-                mock(OID4VPClient.class), configuration(), new MutableClock());
+                mock(OID4VPClient.class), configuration(), new Oid4VpTokenCache(new MutableClock()));
 
         assertThrows(UnknownAudienceException.class, () -> service.tokenFor(AUDIENCE));
     }
@@ -114,7 +114,7 @@ class Oid4VpTokenServiceTest {
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)));
 
-        new Oid4VpTokenService(client, configuration(target()), new MutableClock()).tokenFor(AUDIENCE);
+        new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock())).tokenFor(AUDIENCE);
 
         verify(client).getAccessToken(captor.capture());
         // a VCVerifier serves discovery per service; the host root would 404
@@ -132,7 +132,7 @@ class Oid4VpTokenServiceTest {
         TokenTarget noPath = new TokenTarget(AUDIENCE, URI.create("https://idp.example.org"),
                 null, null, null);
 
-        new Oid4VpTokenService(client, configuration(noPath), new MutableClock()).tokenFor(AUDIENCE);
+        new Oid4VpTokenService(client, configuration(noPath), new Oid4VpTokenCache(new MutableClock())).tokenFor(AUDIENCE);
 
         verify(client).getAccessToken(captor.capture());
         assertEquals("", captor.getValue().path());
@@ -144,8 +144,8 @@ class Oid4VpTokenServiceTest {
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)));
 
-        Oid4VpTokenService.AccessToken token = new Oid4VpTokenService(
-                client, configuration(target()), new MutableClock()).tokenFor(AUDIENCE);
+        AccessToken token = new Oid4VpTokenService(
+                client, configuration(target()), new Oid4VpTokenCache(new MutableClock())).tokenFor(AUDIENCE);
 
         assertEquals("token-1", token.value());
         assertEquals("Bearer", token.tokenType());
@@ -156,7 +156,7 @@ class Oid4VpTokenServiceTest {
         OID4VPClient client = mock(OID4VPClient.class);
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)));
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
@@ -171,7 +171,7 @@ class Oid4VpTokenServiceTest {
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-2", ONE_HOUR_SECONDS)));
         MutableClock clock = new MutableClock();
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), clock);
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(clock));
 
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
         // inside the refresh skew but not yet expired: the token must already be replaced, so the
@@ -188,7 +188,7 @@ class Oid4VpTokenServiceTest {
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)));
         MutableClock clock = new MutableClock();
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), clock);
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(clock));
 
         service.tokenFor(AUDIENCE);
         clock.advance(Duration.ofMinutes(10));
@@ -204,7 +204,7 @@ class Oid4VpTokenServiceTest {
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", 0L)))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-2", 0L)));
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
         assertEquals("token-2", service.tokenFor(AUDIENCE).value());
@@ -219,14 +219,36 @@ class Oid4VpTokenServiceTest {
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", 40L)))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-2", 40L)));
         MutableClock clock = new MutableClock();
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), clock);
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(clock));
 
         // a 40s token cannot be cached for "lifetime - 60s skew"; half its life is used instead
+        assertEquals(40L, service.tokenFor(AUDIENCE).expiresInSeconds());
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
         clock.advance(Duration.ofSeconds(10));
         assertEquals("token-1", service.tokenFor(AUDIENCE).value());
+        // The reported lifetime must come from the token's real expiry. Reconstructing it from the
+        // staleness deadline (which is only "expiry - skew" for a long-lived token) reported 70s here
+        // for a token that dies in 30 - and the consent-plugin caches on that number.
+        assertEquals(30L, service.tokenFor(AUDIENCE).expiresInSeconds(),
+                "a short-lived cached token must not over-report its remaining lifetime");
         clock.advance(Duration.ofSeconds(15));
         assertEquals("token-2", service.tokenFor(AUDIENCE).value());
+    }
+
+    @Test
+    void neverReportsMoreLifetimeThanTheTokenActuallyHas() {
+        OID4VPClient client = mock(OID4VPClient.class);
+        when(client.getAccessToken(any()))
+                .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", 90L)));
+        MutableClock clock = new MutableClock();
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(clock));
+
+        // 90s lifetime, 60s skew: cached for 30s, so the last hit lands just before the deadline
+        service.tokenFor(AUDIENCE);
+        clock.advance(Duration.ofSeconds(29));
+
+        assertEquals(61L, service.tokenFor(AUDIENCE).expiresInSeconds(),
+                "the reported lifetime is what is left until the real expiry");
     }
 
     @Test
@@ -234,7 +256,7 @@ class Oid4VpTokenServiceTest {
         OID4VPClient client = mock(OID4VPClient.class);
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.completedFuture(new TokenResponse()));
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         TokenAcquisitionException exception =
                 assertThrows(TokenAcquisitionException.class, () -> service.tokenFor(AUDIENCE));
@@ -263,7 +285,7 @@ class Oid4VpTokenServiceTest {
                                               TokenAcquisitionException.Reason expected) {
         OID4VPClient client = mock(OID4VPClient.class);
         when(client.getAccessToken(any())).thenReturn(CompletableFuture.failedFuture(thrown));
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         TokenAcquisitionException exception =
                 assertThrows(TokenAcquisitionException.class, () -> service.tokenFor(AUDIENCE));
@@ -276,7 +298,7 @@ class Oid4VpTokenServiceTest {
         when(client.getAccessToken(any()))
                 .thenReturn(CompletableFuture.failedFuture(new BadGatewayException("verifier down")))
                 .thenReturn(CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS)));
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         assertThrows(TokenAcquisitionException.class, () -> service.tokenFor(AUDIENCE));
         assertEquals("token-1", service.tokenFor(AUDIENCE).value(),
@@ -294,7 +316,7 @@ class Oid4VpTokenServiceTest {
             Thread.sleep(50);
             return CompletableFuture.completedFuture(tokenResponse("token-1", ONE_HOUR_SECONDS));
         });
-        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new MutableClock());
+        Oid4VpTokenService service = new Oid4VpTokenService(client, configuration(target()), new Oid4VpTokenCache(new MutableClock()));
 
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(callers);

@@ -8,6 +8,7 @@ import io.micronaut.core.annotation.Nullable;
 import lombok.Data;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -17,13 +18,20 @@ import java.util.List;
  * and outbound calls are authenticated. When disabled, none of the auth beans exist and requests go
  * out unauthenticated.
  *
- * <p>Adapted from the reference implementation
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE} and {@code LICENSE-Apache-2.0}.
  */
 @Data
 @Introspected
 @ConfigurationProperties("oid4vp")
 public class Oid4VpConfiguration {
+
+    /** Default {@link #connectTimeout}. */
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    /** Default {@link #requestTimeout}. */
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(15);
 
     /** Whether outbound TM Forum requests are authenticated over OID4VP. */
     private boolean enabled = false;
@@ -39,14 +47,28 @@ public class Oid4VpConfiguration {
     private String credentialsFolder;
     /** Whether to check credential revocation. */
     private boolean enableRevocation = false;
+    /**
+     * How long the facade waits for the TCP connection to a verifier. Without it an unreachable-but-
+     * accepting host can hold the connect attempt open indefinitely.
+     */
+    private Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
+    /**
+     * How long the facade waits for a whole OID4VP exchange to complete. A verifier that accepts the
+     * connection and then stalls is a common failure mode; bounding the exchange is what stops it from
+     * pinning the calling thread (and, on {@code POST /internal/tokens}, the blocking pool).
+     */
+    private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
     /** Trust anchors added on top of the system truststore (empty ⇒ system anchors only). */
     private List<String> trustAnchors = List.of();
     /**
-     * Default OID4VP {@code client_id} presented to the provider's authorization endpoint. A
-     * per-provider override is planned via the admin API (implementation-plan.md, step 4).
+     * Default OID4VP {@code client_id} presented to the provider's authorization endpoint. Used for a
+     * provider that does not carry its own (see {@code ProviderConfig#clientId()}).
      */
     private String clientId = "";
-    /** Default OID4VP scopes requested for TM Forum access; per-provider override planned. */
+    /**
+     * Default OID4VP scopes requested for TM Forum access. Used for a provider that does not carry its
+     * own (see {@code ProviderConfig#scopes()}).
+     */
     private List<String> scopes = List.of();
     /**
      * The audiences the facade may obtain access tokens for via {@code POST /internal/tokens}.

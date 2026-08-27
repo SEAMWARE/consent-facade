@@ -24,7 +24,8 @@ import java.util.Objects;
  *                        of the data resources it offers (plan §11.7); may be {@code null}, in which
  *                        case callers fall back to the legacy global {@code facade.provider.self-description}
  * @param clientId        this provider's OID4VP {@code client_id} for authenticating outbound TM Forum
- *                        calls (implementation-plan.md step 4); {@code null} ⇒ the facade default
+ *                        calls, overridable per provider through the admin API; {@code null} ⇒ the
+ *                        facade default
  *                        {@code oid4vp.client-id}
  * @param scopes          this provider's OID4VP scopes; {@code null}/empty ⇒ the facade default
  *                        {@code oid4vp.scopes}

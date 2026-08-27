@@ -215,7 +215,11 @@ components:
         expires_in:
           type: integer
           format: int64
-          description: The token's remaining lifetime in seconds.
+          description: |
+            The token's remaining lifetime in seconds, as the verifier reported it minus the time it
+            has already spent in the facade's cache. It is the token's *actual* remaining validity, so
+            a caller may cache on it - it is never the facade's internal refresh deadline, which sits
+            earlier.
           example: 3540
     Provider:
       type: object

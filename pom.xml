@@ -54,21 +54,23 @@
         <consent-facade.api>${project.basedir}/api/consent-facade.yaml</consent-facade.api>
         <consent-facade-internal.api>${project.basedir}/api/consent-facade-internal.yaml</consent-facade-internal.api>
 
-        <!-- TM Forum APIs (consumed) -->
-        <tmforum.productorder.api.url>
-            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/product-ordering-management/api.json
-        </tmforum.productorder.api.url>
+        <!-- TM Forum APIs (consumed).
+             Pinned to a release tag, not refs/heads/main: an unpinned spec makes the build
+             non-reproducible (the same commit generates different client code on different days) and
+             lets an upstream model or signature change alter generated code with nothing in this
+             repository's history to explain it. Bump this deliberately. -->
+        <tmforum.api.ref>refs/tags/1.18.0</tmforum.api.ref>
         <tmforum.productcatalog.api.url>
-            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/product-catalog/api.json
+            https://raw.githubusercontent.com/FIWARE/tmforum-api/${tmforum.api.ref}/api/tm-forum/product-catalog/api.json
         </tmforum.productcatalog.api.url>
         <tmforum.productinventory.api.url>
-            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/product-inventory/api.json
+            https://raw.githubusercontent.com/FIWARE/tmforum-api/${tmforum.api.ref}/api/tm-forum/product-inventory/api.json
         </tmforum.productinventory.api.url>
         <tmforum.party.api.url>
-            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/party-catalog/api.json
+            https://raw.githubusercontent.com/FIWARE/tmforum-api/${tmforum.api.ref}/api/tm-forum/party-catalog/api.json
         </tmforum.party.api.url>
         <tmforum.agreement.api.url>
-            https://raw.githubusercontent.com/FIWARE/tmforum-api/refs/heads/main/api/tm-forum/agreement/api.json
+            https://raw.githubusercontent.com/FIWARE/tmforum-api/${tmforum.api.ref}/api/tm-forum/agreement/api.json
         </tmforum.agreement.api.url>
 
         <!-- oci -->
@@ -95,6 +97,9 @@
         <!-- build -->
         <version.org.codehaus.mojo.build-helper-maven-plugin>3.6.0</version.org.codehaus.mojo.build-helper-maven-plugin>
         <version.org.jacoco.maven-plugin>0.8.12</version.org.jacoco.maven-plugin>
+        <version.org.cyclonedx.maven-plugin>2.9.1</version.org.cyclonedx.maven-plugin>
+        <jacoco.minimum.line.coverage>0.88</jacoco.minimum.line.coverage>
+        <jacoco.minimum.branch.coverage>0.72</jacoco.minimum.branch.coverage>
     </properties>
 
     <dependencies>
@@ -113,6 +118,18 @@
         <dependency>
             <groupId>io.micronaut</groupId>
             <artifactId>micronaut-management</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <!-- backs the micronaut.metrics configuration in application.yaml. Without it the config is
+             inert: /metrics and /prometheus answer 404 and the service has no metrics at all. -->
+        <dependency>
+            <groupId>io.micronaut.micrometer</groupId>
+            <artifactId>micronaut-micrometer-core</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.micronaut.micrometer</groupId>
+            <artifactId>micronaut-micrometer-registry-prometheus</artifactId>
             <scope>compile</scope>
         </dependency>
         <dependency>
@@ -315,40 +332,6 @@
                                 <introspected>true</introspected>
                                 <useBeanValidation>false</useBeanValidation>
                                 <supportAsync>false</supportAsync>
-                                <jacksonDatabindNullable>false</jacksonDatabindNullable>
-                                <serdeable>false</serdeable>
-                                <generateExamples>false</generateExamples>
-                            </configOptions>
-                            <typeMappings>
-                                <typeMapping>java.util.Date=java.time.Instant</typeMapping>
-                            </typeMappings>
-                        </configuration>
-                    </execution>
-                    <!-- TM Forum product ordering (client) -->
-                    <execution>
-                        <id>tmforum-product-ordering</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>generate</goal>
-                        </goals>
-                        <configuration>
-                            <inputSpec>${tmforum.productorder.api.url}</inputSpec>
-                            <apiPackage>org.fiware.consent.tmforum.productorder.api</apiPackage>
-                            <modelPackage>org.fiware.consent.tmforum.productorder.model</modelPackage>
-                            <strictSpec>true</strictSpec>
-                            <generatorName>micronaut</generatorName>
-                            <modelNameSuffix>VO</modelNameSuffix>
-                            <output>${project.build.directory}</output>
-                            <generateSupportingFiles>false</generateSupportingFiles>
-                            <configOptions>
-                                <clientId>product-order</clientId>
-                                <fullJavaUtil>true</fullJavaUtil>
-                                <useOptional>false</useOptional>
-                                <useGenericResponse>true</useGenericResponse>
-                                <useLombokGenerated>true</useLombokGenerated>
-                                <introspected>true</introspected>
-                                <useBeanValidation>false</useBeanValidation>
-                                <supportAsync>true</supportAsync>
                                 <jacksonDatabindNullable>false</jacksonDatabindNullable>
                                 <serdeable>false</serdeable>
                                 <generateExamples>false</generateExamples>
@@ -572,15 +555,34 @@
                     </argLine>
                 </configuration>
             </plugin>
+            <!-- SBOM (CycloneDX) alongside the jar, so what is shipped is enumerable -->
+            <plugin>
+                <groupId>org.cyclonedx</groupId>
+                <artifactId>cyclonedx-maven-plugin</artifactId>
+                <version>${version.org.cyclonedx.maven-plugin}</version>
+                <executions>
+                    <execution>
+                        <id>sbom</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>makeAggregateBom</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${version.org.jacoco.maven-plugin}</version>
                 <configuration>
-                    <!-- exclude generated code -->
+                    <!-- exclude generated code: the server interfaces and models of both specs, and
+                         the TM Forum clients. The internal spec's generated packages were missing here,
+                         so ~90 lines of generated accessors were being counted as untested code. -->
                     <excludes>
                         <exclude>org/fiware/consent/api/**/*</exclude>
                         <exclude>org/fiware/consent/model/**/*</exclude>
+                        <exclude>org/fiware/consent/internal/api/**/*</exclude>
+                        <exclude>org/fiware/consent/internal/model/**/*</exclude>
                         <exclude>org/fiware/consent/tmforum/**/api/**/*</exclude>
                         <exclude>org/fiware/consent/tmforum/**/model/**/*</exclude>
                     </excludes>
@@ -598,6 +600,35 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
+                    </execution>
+                    <!-- Ratchet, not a target: the thresholds sit just under the coverage the suite
+                         reaches today, so a regression fails the build without demanding new work.
+                         Raise them when coverage rises. -->
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.minimum.line.coverage}</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.minimum.branch.coverage}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

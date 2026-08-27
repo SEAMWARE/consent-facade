@@ -18,6 +18,7 @@ import org.fiware.consent.tmforum.agreement.model.RelatedPartyVO;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -150,7 +151,10 @@ public class AgreementContractMapper {
             return STATUS_SIGNED;
         }
         return Optional.ofNullable(agreement.getStatus())
-                .map(status -> AGREEMENT_STATUS_TO_CONTRACT_STATUS.get(status.toLowerCase()))
+                // Locale.ROOT, not the default locale: under a Turkish locale "INPROGRESS" lower-cases
+                // to a dotless 'ı', the lookup misses, and a signed-equivalent agreement silently
+                // becomes 'pending' - failing the hasSigned=true filter.
+                .map(status -> AGREEMENT_STATUS_TO_CONTRACT_STATUS.get(status.toLowerCase(Locale.ROOT)))
                 .orElse(STATUS_PENDING);
     }
 

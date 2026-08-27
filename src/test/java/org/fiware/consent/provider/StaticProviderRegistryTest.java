@@ -52,12 +52,13 @@ class StaticProviderRegistryTest {
     }
 
     @Test
-    void defaultProvider_returnsTheDefaultEntry() {
+    void byKey_resolvesTheDefaultEntryLikeAnyOther() {
         StaticProviderRegistry registry = registryWith(
                 configuration(ProviderRegistry.DEFAULT_PROVIDER_KEY, DEFAULT_URL),
                 configuration(PROVIDER_A_KEY, PROVIDER_A_URL));
 
-        ProviderConfig defaultProvider = registry.defaultProvider();
+        ProviderConfig defaultProvider =
+                registry.byKey(ProviderRegistry.DEFAULT_PROVIDER_KEY).orElseThrow();
 
         assertEquals(ProviderRegistry.DEFAULT_PROVIDER_KEY, defaultProvider.key(),
                 "The default provider is the one registered under the default key.");

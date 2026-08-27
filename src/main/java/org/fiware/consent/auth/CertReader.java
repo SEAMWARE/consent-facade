@@ -22,8 +22,9 @@ import java.util.List;
 /**
  * Reads PEM private keys and X.509 certificates from the filesystem for the OID4VP holder identity.
  *
- * <p>Adapted from
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE} and {@code LICENSE-Apache-2.0}.
  */
 @Singleton
 public class CertReader {
@@ -39,13 +40,14 @@ public class CertReader {
             if (is == null) {
                 throw new IllegalArgumentException("Private key not found: " + filename);
             }
-            PEMParser parser = new PEMParser(new InputStreamReader(is, StandardCharsets.UTF_8));
-            Object obj = parser.readObject();
-            JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
-            if (obj instanceof PEMKeyPair pemKeyPair) {
-                return converter.getPrivateKey(pemKeyPair.getPrivateKeyInfo());
-            } else if (obj instanceof PrivateKeyInfo privateKeyInfo) {
-                return converter.getPrivateKey(privateKeyInfo);
+            try (PEMParser parser = new PEMParser(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                Object obj = parser.readObject();
+                JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
+                if (obj instanceof PEMKeyPair pemKeyPair) {
+                    return converter.getPrivateKey(pemKeyPair.getPrivateKeyInfo());
+                } else if (obj instanceof PrivateKeyInfo privateKeyInfo) {
+                    return converter.getPrivateKey(privateKeyInfo);
+                }
             }
             throw new IllegalArgumentException("Unsupported key format in: " + filename);
         } catch (IOException e) {

@@ -11,8 +11,9 @@ import java.util.function.Function;
  * {@code Optional<AuthHandler>}: present ⇒ authenticated calls, absent (OID4VP disabled) ⇒ the
  * request is executed unchanged (unauthenticated).
  *
- * <p>Adapted from
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE} and {@code LICENSE-Apache-2.0}.
  */
 public interface AuthHandler {
 

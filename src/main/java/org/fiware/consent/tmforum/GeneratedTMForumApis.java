@@ -64,13 +64,6 @@ public class GeneratedTMForumApis implements TMForumApis {
     }
 
     @Override
-    public Flux<OrganizationVO> listOrganizations(int offset, int limit) {
-        return organizationApiClient.listOrganization(ALL_FIELDS, offset, limit)
-                .map(HttpResponse::body)
-                .flatMapMany(TMForumResponses::fluxFromNullable);
-    }
-
-    @Override
     public Mono<ProductOfferingVO> retrieveProductOffering(String id) {
         return productOfferingApiClient.retrieveProductOffering(id, ALL_FIELDS)
                 .mapNotNull(HttpResponse::body)

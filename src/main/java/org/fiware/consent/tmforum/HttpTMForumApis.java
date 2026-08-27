@@ -75,11 +75,6 @@ public class HttpTMForumApis implements TMForumApis {
     }
 
     @Override
-    public Flux<OrganizationVO> listOrganizations(int offset, int limit) {
-        return getList(TMForumEndpoints.organizations(offset, limit), OrganizationVO.class);
-    }
-
-    @Override
     public Mono<ProductOfferingVO> retrieveProductOffering(String id) {
         return get(TMForumEndpoints.productOffering(id), ProductOfferingVO.class);
     }

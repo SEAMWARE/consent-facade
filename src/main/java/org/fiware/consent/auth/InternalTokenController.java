@@ -45,7 +45,7 @@ public class InternalTokenController implements TokensApi {
         }
         String audience = tokenRequestVO.getAudience();
         try {
-            Oid4VpTokenService.AccessToken token = tokenService.tokenFor(audience);
+            AccessToken token = tokenService.tokenFor(audience);
             return HttpResponse.ok(new TokenResponseVO()
                     .accessToken(token.value())
                     .tokenType(token.tokenType())
