@@ -115,13 +115,20 @@ public class ConsentFacadeController implements ContractsApi, CatalogApi, Partic
     /**
      * {@inheritDoc}
      *
-     * <p>Ecosystem contracts have no TM Forum source yet. This answers {@code 501} rather than an empty
-     * list, so a caller that starts depending on them fails loudly instead of concluding that this
-     * participant is party to none.
+     * <p>Ecosystem contracts have no TM Forum source yet, so this answers an <strong>empty list</strong>:
+     * this participant is party to no ecosystem contract that the facade can see, which is accurate.
+     *
+     * <p>It must not answer {@code 501}. The consent-manager fetches the bilateral and the ecosystem
+     * contracts of a participant <em>together</em> in one {@code Promise.all}
+     * ({@code getPrivacyNoticesFromContractsBetweenParties}) and has no way to opt out of the
+     * ecosystem call, so a {@code 501} rejects the whole fan-out and every privacy-notice lookup
+     * fails with an opaque {@code 500} - it takes the primary flow down rather than failing loudly.
+     * The by-id lookup below still answers {@code 501}, where nothing fans out into it.
      */
     @Override
     public Mono<HttpResponse<EcosystemContractListVO>> getEcosystemContractsForParticipant(String participantId, Boolean hasSigned) {
-        return Mono.<HttpResponse<EcosystemContractListVO>>just(HttpResponse.status(HttpStatus.NOT_IMPLEMENTED));
+        // an explicit empty array rather than an absent field, so the body is unambiguous
+        return Mono.just(HttpResponse.ok(new EcosystemContractListVO().contracts(List.of())));
     }
 
     /**
