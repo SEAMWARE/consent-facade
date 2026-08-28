@@ -153,7 +153,7 @@ mvn clean package -Poci                 # build locally
 mvn clean deploy  -Poci -Dimage.tag=...  # build & push (CI)
 ```
 
-Image: `quay.io/wi_stefan/consent-facade`.
+Image: `quay.io/seamware/consent-facade`.
 
 ## Status
 
