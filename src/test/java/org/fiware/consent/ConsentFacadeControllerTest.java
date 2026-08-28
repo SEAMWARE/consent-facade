@@ -363,14 +363,22 @@ class ConsentFacadeControllerTest {
     }
 
     @Test
-    void ecosystemContracts_areNotImplementedRatherThanSilentlyEmpty() {
-        HttpClientResponseException forParticipant = assertThrows(HttpClientResponseException.class, () ->
-                client.toBlocking().exchange(
-                        HttpRequest.GET("/contracts/for/" + base64(PROVIDER_ID)), EcosystemContractListVO.class));
+    void ecosystemContractsForParticipant_answerAnEmptyListSoTheNoticeFanOutSurvives() {
+        // The consent-manager fetches a participant's bilateral AND ecosystem contracts together in
+        // one Promise.all and cannot opt out of the ecosystem call, so a 501 here rejects the whole
+        // fan-out and every privacy-notice lookup fails with an opaque 500.
+        HttpResponse<EcosystemContractListVO> response = client.toBlocking().exchange(
+                HttpRequest.GET("/contracts/for/" + base64(PROVIDER_ID)), EcosystemContractListVO.class);
 
-        assertEquals(HttpStatus.NOT_IMPLEMENTED, forParticipant.getStatus(),
-                "An empty list would read as 'this participant has no ecosystem contracts'.");
+        assertEquals(HttpStatus.OK, response.getStatus(), "A 501 would take the notice lookup down.");
+        assertEquals(List.of(), response.body().getContracts(),
+                "There is no TM Forum source for ecosystem contracts, so the participant is party to none.");
+    }
 
+    @Test
+    void ecosystemContractById_isStillNotImplemented() {
+        // Nothing fans out into the by-id lookup: it is only reached for a contract that some
+        // listing returned, and the listing above returns none. A 501 there stays honest.
         HttpClientResponseException byId = assertThrows(HttpClientResponseException.class, () ->
                 client.toBlocking().exchange(HttpRequest.GET("/contracts/agr-1"), EcosystemContractVO.class));
 
