@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.tmforum;
 
 import jakarta.inject.Singleton;
@@ -17,6 +33,7 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.IntFunction;
 
 /**
  * Repository giving the facade a single, domain-oriented access point to the TM Forum back-end
@@ -36,9 +53,15 @@ import java.util.Optional;
  * repository over a low-level, base-url-bound {@link TMForumApis} for every other provider
  * (multi-provider plan, {@code REQUIREMENTS.md} §11.5).
  *
- * <p>Beyond simple lookups it offers {@link #resolveSpecifications(AgreementVO)}, which walks the
+ * <p>Beyond simple lookups it offers {@link #resolveSpecificationIds(AgreementVO)}, which walks the
  * native TM Forum references from an agreement to the product specification(s) that back it - the
  * specification being the object that corresponds to a data resource.
+ *
+ * <p>The list methods walk <em>all</em> pages rather than returning the first one. The facade filters
+ * agreement lists client-side (the TM Forum list endpoint has no server-side filter by engaged party),
+ * so a truncated list is indistinguishable from "no such contract" for the caller: a participant party
+ * to agreement 120 of 150 would be reported as having none. Paging is bounded by
+ * {@link #MAX_PAGES}, and hitting that bound is logged rather than passed off as a complete answer.
  *
  * <p>The agreements this repository reads are the ones produced by the EDC TM Forum extension
  * ({@code org.seamware.edc.store.TMFEdcMapper#toAgreement}): the contract policy and the
@@ -57,14 +80,22 @@ public class TMForumBackedRepository {
 
     /**
      * Page size requested from the TM Forum list endpoints. The FIWARE tm-forum-api applies a
-     * default page size when none is given; requesting an explicit, generous limit keeps the
-     * repository's list results predictable. Callers needing full pagination should use the
-     * offset/limit overloads.
+     * default page size when none is given; requesting an explicit, generous limit keeps the number of
+     * round trips down while walking all pages.
      */
     private static final int DEFAULT_PAGE_LIMIT = 100;
 
     /** First page offset for the list endpoints. */
     private static final int FIRST_PAGE_OFFSET = 0;
+
+    /**
+     * Maximum number of pages walked by a list method. A backstop against an endpoint that keeps
+     * answering with full pages; reaching it is logged, because the result is then truncated.
+     */
+    private static final int MAX_PAGES = 100;
+
+    /** Names used when logging that a listing was truncated. */
+    private static final String AGREEMENTS = "agreements";
 
     private final TMForumApis apis;
 
@@ -81,12 +112,13 @@ public class TMForumBackedRepository {
     }
 
     /**
-     * Lists the first page (see {@link #DEFAULT_PAGE_LIMIT}) of agreements.
+     * Lists all agreements, walking the TM Forum list endpoint page by page (see
+     * {@link #DEFAULT_PAGE_LIMIT}) until it is exhausted or {@link #MAX_PAGES} is reached.
      *
      * @return the agreements
      */
     public Flux<AgreementVO> findAgreements() {
-        return findAgreements(FIRST_PAGE_OFFSET, DEFAULT_PAGE_LIMIT);
+        return allPages(offset -> findAgreements(offset, DEFAULT_PAGE_LIMIT), AGREEMENTS);
     }
 
     /**
@@ -100,20 +132,6 @@ public class TMForumBackedRepository {
         return apis.listAgreements(offset, limit);
     }
 
-    /**
-     * Lists the agreements a party is engaged in, in either the provider or consumer role.
-     *
-     * <p>The TM Forum list endpoint does not support server-side filtering by engaged party, so this
-     * filters the first page (see {@link #DEFAULT_PAGE_LIMIT}) client-side.
-     *
-     * @param partyId the {@link RelatedPartyVO#getId() id} of the engaged party
-     * @return the agreements the party is engaged in
-     */
-    public Flux<AgreementVO> findAgreementsForParty(String partyId) {
-        return findAgreements()
-                .filter(agreement -> isEngagedParty(agreement, partyId));
-    }
-
     // ---- organizations (participants) ------------------------------------------------
 
     /**
@@ -124,26 +142,6 @@ public class TMForumBackedRepository {
      */
     public Mono<OrganizationVO> findOrganizationById(String id) {
         return apis.retrieveOrganization(id);
-    }
-
-    /**
-     * Lists the first page (see {@link #DEFAULT_PAGE_LIMIT}) of organizations.
-     *
-     * @return the organizations
-     */
-    public Flux<OrganizationVO> findOrganizations() {
-        return findOrganizations(FIRST_PAGE_OFFSET, DEFAULT_PAGE_LIMIT);
-    }
-
-    /**
-     * Lists organizations with explicit pagination.
-     *
-     * @param offset index of the first organization to return
-     * @param limit  maximum number of organizations to return
-     * @return the organizations in the requested page
-     */
-    public Flux<OrganizationVO> findOrganizations(int offset, int limit) {
-        return apis.listOrganizations(offset, limit);
     }
 
     // ---- product catalog / inventory -------------------------------------------------
@@ -179,9 +177,9 @@ public class TMForumBackedRepository {
     }
 
     /**
-     * Resolves the product specification(s) an agreement is about, following the native TM Forum
-     * references. An agreement's {@link AgreementItemVO agreement items} refer to product offerings
-     * (the primary reference) and, optionally, to product instances; both carry a product
+     * Resolves the ids of the product specification(s) an agreement is about, following the native
+     * TM Forum references. An agreement's {@link AgreementItemVO agreement items} refer to product
+     * offerings (the primary reference) and, optionally, to product instances; both carry a product
      * specification:
      *
      * <pre>
@@ -189,23 +187,9 @@ public class TMForumBackedRepository {
      *   agreement.agreementItem[].product[]         -&gt; Product.productSpecification          -&gt; ProductSpecification
      * </pre>
      *
-     * <p>Both paths are followed and their results de-duplicated by specification id, so an
-     * agreement referring to an offering, a product, or both resolves to the same specification
-     * once. The specification is the object that corresponds to a data resource.
-     *
-     * @param agreement the agreement to resolve
-     * @return the distinct product specifications backing the agreement (empty if it references none)
-     */
-    public Flux<ProductSpecificationVO> resolveSpecifications(AgreementVO agreement) {
-        return resolveSpecificationIds(agreement)
-                .flatMap(this::findProductSpecificationById);
-    }
-
-    /**
-     * Resolves the ids of the product specification(s) an agreement is about, following the same
-     * native references as {@link #resolveSpecifications(AgreementVO)} but stopping at the ids -
-     * useful when only the specification ids (e.g. to build data-resource URLs) are needed, without
-     * fetching each specification body.
+     * <p>Both paths are followed and their results de-duplicated by specification id, so an agreement
+     * referring to an offering, a product, or both resolves to the same specification once. The
+     * specification is the object that corresponds to a data resource.
      *
      * @param agreement the agreement to resolve
      * @return the distinct product-specification ids backing the agreement (empty if it references none)
@@ -240,6 +224,53 @@ public class TMForumBackedRepository {
                 .distinct();
     }
 
+    // ---- pagination ------------------------------------------------------------------
+
+    /**
+     * Walks a paged TM Forum list endpoint to exhaustion. A page shorter than
+     * {@link #DEFAULT_PAGE_LIMIT} is the last one; reaching {@link #MAX_PAGES} truncates the result and
+     * is logged, because a caller filtering the result client-side cannot tell a truncated list from an
+     * empty match.
+     *
+     * @param pageAt       fetches the page starting at the given offset
+     * @param resourceName the resource being listed, for the truncation log
+     * @param <T>          the listed type
+     * @return every entry across all walked pages, in page order
+     */
+    private <T> Flux<T> allPages(IntFunction<Flux<T>> pageAt, String resourceName) {
+        return fetchPage(pageAt, FIRST_PAGE_OFFSET)
+                .expand(page -> nextPage(pageAt, page, resourceName))
+                .flatMapIterable(Page::items);
+    }
+
+    private static <T> Mono<Page<T>> fetchPage(IntFunction<Flux<T>> pageAt, int offset) {
+        return pageAt.apply(offset).collectList().map(items -> new Page<>(offset, items));
+    }
+
+    private static <T> Mono<Page<T>> nextPage(IntFunction<Flux<T>> pageAt, Page<T> page, String resourceName) {
+        if (page.items().size() < DEFAULT_PAGE_LIMIT) {
+            return Mono.empty();
+        }
+        int nextOffset = page.offset() + DEFAULT_PAGE_LIMIT;
+        if (nextOffset >= MAX_PAGES * DEFAULT_PAGE_LIMIT) {
+            log.warn("Stopped listing {} at {} entries: the {}-page cap was reached, so this result is "
+                            + "truncated and a client-side filter over it may miss entries.",
+                    resourceName, nextOffset, MAX_PAGES);
+            return Mono.empty();
+        }
+        return fetchPage(pageAt, nextOffset);
+    }
+
+    /**
+     * One page of a TM Forum listing.
+     *
+     * @param offset the offset the page was fetched at
+     * @param items  the entries on it
+     * @param <T>    the listed type
+     */
+    private record Page<T>(int offset, List<T> items) {
+    }
+
     // ---- agreement helpers -----------------------------------------------------------
 
     /**
@@ -259,13 +290,6 @@ public class TMForumBackedRepository {
                 .map(CharacteristicVO::getValue)
                 .filter(Objects::nonNull)
                 .findFirst();
-    }
-
-    private static boolean isEngagedParty(AgreementVO agreement, String partyId) {
-        return Optional.ofNullable(agreement.getEngagedParty())
-                .orElse(List.of())
-                .stream()
-                .anyMatch(engagedParty -> Objects.equals(engagedParty.getId(), partyId));
     }
 
     /**

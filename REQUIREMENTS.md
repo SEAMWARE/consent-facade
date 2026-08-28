@@ -1,6 +1,11 @@
-# Consent Facade — Requirements & Integration Notes
+# Consent Facade — Architecture, Requirements & Integration Notes
 
-This document captures everything needed to implement the **consent-facade**: the exact contract-service API the
+> **This is the architecture document of the service, not a backlog.** Around twenty Javadoc comments
+> cross-reference its sections by number (`REQUIREMENTS.md` §11.5 and so on), which makes it
+> load-bearing: a section that drifts from the code takes those comments with it. Keep it in step, and
+> keep the section numbering stable.
+
+This document captures everything needed to implement and maintain the **consent-facade**: the exact contract-service API the
 [Prometheus-X / Visions consent-manager](https://github.com/VisionsOfficial/consent-manager) consumes, the data models
 involved, the TM Forum projection, and the hard-won gotchas. It is derived from reading the **running consent-manager**
 (image `consent-manager:local`, sources under `/usr/src/app/dist/src/...`), the Prometheus-X
@@ -360,7 +365,10 @@ DSC POC (reference implementation this replaces):
 
 ---
 
-## 11. Multi-provider support (plan)
+## 11. Multi-provider support
+
+> Implemented: the provider registry (§11.3 static, §11.8 persistent), the provider-scoped ids
+> (§11.4), the per-provider `TMForumApis` (§11.5) and the request routing (§11.6) are all in place.
 
 A data space has **many providers**, each with its **own TM Forum backend** (`tm-forum-api`). One consent-facade (at `CONTRACT_SERVICE_BASE_URL`) must therefore serve contracts/catalog/participants across all of them and route every request to the right provider's TM Forum endpoint. **The consent-manager needs no changes** — it only ever calls the facade with identifiers the facade itself minted (§2), so the facade can carry the provider in them.
 

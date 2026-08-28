@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.provider;
 
 import io.micronaut.context.annotation.Requires;
@@ -51,8 +67,9 @@ public class ProviderAdminController implements ProvidersApi {
     /** {@inheritDoc} */
     @Override
     public HttpResponse<ProviderVO> createProvider(ProviderVO providerVO) {
-        if (validate(providerVO.getKey(), providerVO) != null) {
-            return HttpResponse.badRequest();
+        String rejection = validate(providerVO.getKey(), providerVO);
+        if (rejection != null) {
+            return badRequest(rejection);
         }
         if (registry.exists(providerVO.getKey())) {
             return HttpResponse.status(HttpStatus.CONFLICT);
@@ -64,8 +81,9 @@ public class ProviderAdminController implements ProvidersApi {
     /** {@inheritDoc} */
     @Override
     public HttpResponse<ProviderVO> upsertProvider(String key, ProviderVO providerVO) {
-        if (validate(key, providerVO) != null) {
-            return HttpResponse.badRequest();
+        String rejection = validate(key, providerVO);
+        if (rejection != null) {
+            return badRequest(rejection);
         }
         ProviderConfig saved = registry.save(ProviderVoMapper.toConfig(key, providerVO));
         return HttpResponse.ok(ProviderVoMapper.toVo(saved));
@@ -75,16 +93,20 @@ public class ProviderAdminController implements ProvidersApi {
     @Override
     public HttpResponse<Object> deleteProvider(String key) {
         if (ProviderRegistry.DEFAULT_PROVIDER_KEY.equals(key)) {
-            // the default provider is the routing fallback and must always exist
-            return HttpResponse.badRequest();
+            return badRequest(
+                    "the '" + ProviderRegistry.DEFAULT_PROVIDER_KEY + "' provider must always exist");
         }
         return registry.delete(key) ? HttpResponse.noContent() : HttpResponse.notFound();
     }
 
     /**
      * Validates a provider: the effective key must be present and free of the
-     * {@link ProviderScopedId#SEPARATOR} (which would make its ids un-decodable), and the TM Forum
-     * base url must be present.
+     * {@link ProviderScopedId#SEPARATOR} (which would make its ids un-decodable), the TM Forum base url
+     * must be present, and no scope may carry whitespace (scopes are persisted in a single
+     * space-delimited column, and OAuth2 forbids whitespace in a scope token anyway).
+     *
+     * <p>The returned reason is what the caller sees in the {@code 400} body: an operator driving this
+     * API needs to know which of the rules they broke.
      *
      * @param key      the effective provider key (the path key on update, the body key on create)
      * @param provider the provider to validate
@@ -100,6 +122,24 @@ public class ProviderAdminController implements ProvidersApi {
         if (provider.getTmforumBaseUrl() == null || provider.getTmforumBaseUrl().isBlank()) {
             return "the TM Forum base url is required";
         }
+        List<String> scopes = provider.getScopes();
+        if (scopes != null && scopes.stream().anyMatch(ProviderAdminController::containsWhitespace)) {
+            return "a scope must not contain whitespace";
+        }
         return null;
+    }
+
+    /**
+     * A {@code 400} carrying the rejection reason as its body. The generated method signatures are
+     * typed on the <em>success</em> body, while the framework serializes whatever body it is given, so
+     * the response type is widened here rather than at every call site.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> HttpResponse<T> badRequest(String reason) {
+        return (HttpResponse<T>) HttpResponse.badRequest(reason);
+    }
+
+    private static boolean containsWhitespace(String scope) {
+        return scope == null || scope.chars().anyMatch(Character::isWhitespace);
     }
 }

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.auth;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,8 +58,9 @@ import java.util.stream.Collectors;
  * are gated on {@link Oid4VpConfiguration#isEnabled() OID4VP being enabled}, so nothing is built (and
  * no key/credential is loaded) in the default, unauthenticated deployment.
  *
- * <p>Adapted from
- * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0).
+ * <p>Adapted, with modifications, from
+ * <a href="https://github.com/FIWARE/contract-management">FIWARE/contract-management</a> (Apache-2.0);
+ * see {@code NOTICE}.
  */
 @Factory
 @Slf4j
@@ -52,27 +69,53 @@ public class Oid4VpBeanFactory {
 
     private final CertReader certReader;
 
+    /**
+     * @param certReader reads the holder's PEM key and any additional trust anchors
+     */
     public Oid4VpBeanFactory(CertReader certReader) {
         this.certReader = certReader;
     }
 
-    /** Low-level HTTP client (with optional proxy) the OID4VP flow uses. */
+    /**
+     * Low-level HTTP client (with optional proxy) the OID4VP flow uses. The connect timeout bounds the
+     * one failure mode a request timeout cannot cover on its own: a host that never completes the
+     * handshake.
+     *
+     * @param configuration the OID4VP configuration carrying the proxy and the connect timeout
+     * @return the HTTP client
+     */
     @Singleton
     public HttpClient oid4vpHttpClient(Oid4VpConfiguration configuration) {
-        HttpClient.Builder builder = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL);
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(configuration.getConnectTimeout());
         if (configuration.getProxyHost() != null && configuration.getProxyPort() != null) {
             builder.proxy(ProxySelector.of(new InetSocketAddress(configuration.getProxyHost(), configuration.getProxyPort())));
         }
         return builder.build();
     }
 
-    /** The credentials the facade presents, read from {@code oid4vp.credentials-folder}. */
+    /**
+     * The credentials the facade presents, read from {@code oid4vp.credentials-folder}.
+     *
+     * @param configuration the OID4VP configuration carrying the credentials folder
+     * @param objectMapper  the mapper used to read them
+     * @return the credentials repository
+     */
     @Bean
     public CredentialsRepository credentialsRepository(Oid4VpConfiguration configuration, ObjectMapper objectMapper) {
         return new FileSystemCredentialsRepository(configuration.getCredentialsFolder(), objectMapper);
     }
 
-    /** The OID4VP client presenting the holder's credential for an access token. */
+    /**
+     * The OID4VP client presenting the holder's credential for an access token.
+     *
+     * @param httpClient            the low-level client the flow runs over
+     * @param objectMapper          the base mapper (copied and re-configured for the OID4VP wire format)
+     * @param configuration         the OID4VP configuration
+     * @param credentialsRepository the credentials to present
+     * @return the OID4VP client
+     */
     @Bean
     public OID4VPClient oid4VPClient(HttpClient httpClient,
                                      ObjectMapper objectMapper,

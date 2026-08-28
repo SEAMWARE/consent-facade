@@ -1,4 +1,14 @@
-# Implementation plan — VC/OID4VP authentication for outbound TM Forum calls
+# Implementation record — VC/OID4VP authentication for outbound TM Forum calls
+
+> **Status: implemented.** Steps 1-4 of the sequencing below are done and covered by tests; step 5
+> (DSC credential provisioning and the live test against `mp-tmf-api`) is a deployment task outside
+> this repository. This document is kept as the record of *why* the design looks the way it does -
+> the architecture itself is documented in [`REQUIREMENTS.md`](REQUIREMENTS.md) §11.
+>
+> One thing changed after this plan was written: the "later optimisation" noted under step 6 was
+> implemented. Both token paths now share one cache (`Oid4VpTokenCache`), so an outbound call attaches
+> a cached token proactively and only presents the credential when there is none or the target
+> answers `401`.
 
 ## Goal
 
@@ -103,6 +113,12 @@ needs the `HttpResponse`/status), set the `clientId`/`scope` attributes, and wra
 > call (contract-management's behaviour). A per-provider token cache (attach the cached token
 > proactively, refresh on `401`) is a straightforward later optimisation if the double round-trip
 > matters; it does not change the wiring above.
+>
+> **Done.** The double round-trip did matter: the participant-scoped lookups make one outbound call per
+> registered provider, so in the steady state every one of them cost an unauthorized round trip plus a
+> full verifiable presentation. `Oid4VpTokenCache` now serves both this path (keyed on the target
+> service, client id and scopes) and `POST /internal/tokens` (keyed on the configured audience), so
+> there is one place that decides when a token is stale.
 
 ### 7. Endpoint wiring
 Point the provider's TM Forum base URL at the authenticated endpoint (`mp-tmf-api.127.0.0.1.nip.io`
@@ -125,9 +141,11 @@ participants), mounted as a read-only secret/volume; set `oid4vp.enabled=true`, 
 in-memory BouncyCastle).
 
 ## Sequencing (incremental)
-1. Config (`Oid4VpConfiguration`) + `Oid4VpBeanFactory` + `Oid4VpAuthHandler` + `CertReader` /
-   `DidKeyGenerator`, with the **unauthenticated fallback** (no behaviour change when disabled).
-2. Path (a): the generated-clients `HttpClientFilter`.
-3. Path (b): `HttpTMForumApis` exchange + handler.
-4. Per-provider `client-id`/`scopes` via config now, admin API later.
-5. DSC credential provisioning + live test against `mp-tmf-api`.
+1. ~~Config (`Oid4VpConfiguration`) + `Oid4VpBeanFactory` + `Oid4VpAuthHandler` + `CertReader` /
+   `DidKeyGenerator`, with the **unauthenticated fallback** (no behaviour change when disabled).~~ Done.
+2. ~~Path (a): the generated-clients `HttpClientFilter`.~~ Done (`TmForumAuthClientFilter`).
+3. ~~Path (b): `HttpTMForumApis` exchange + handler.~~ Done.
+4. ~~Per-provider `client-id`/`scopes` via config now, admin API later.~~ Done - both, via
+   `ProviderConfig` and `V2__add_provider_oid4vp_columns.sql`.
+5. DSC credential provisioning + live test against `mp-tmf-api` — **open**, and a deployment task in
+   the DSC charts rather than a change here.

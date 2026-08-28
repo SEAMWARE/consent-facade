@@ -1,13 +1,31 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.provider;
 
 import io.micronaut.context.annotation.Property;
 import io.micronaut.test.extensions.junit5.annotation.MicronautTest;
 import jakarta.inject.Inject;
 import org.fiware.consent.provider.persistence.ProviderRepository;
+import org.fiware.consent.tmforum.TMForumBackedRepository;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -31,6 +49,9 @@ class PersistentProviderRegistryTest {
     @Inject
     ProviderRepository repository;
 
+    @Inject
+    TMForumClientFactory clientFactory;
+
     private static ProviderConfig provider(String key, String tmforumBaseUrl) {
         return new ProviderConfig(key, tmforumBaseUrl, null, null, null);
     }
@@ -39,7 +60,8 @@ class PersistentProviderRegistryTest {
     void seedsTheDefaultProviderFromConfigurationOnFirstStart() {
         assertTrue(registry.byKey(ProviderRegistry.DEFAULT_PROVIDER_KEY).isPresent(),
                 "The default provider from facade.providers.* is seeded into the empty table.");
-        assertEquals(ProviderRegistry.DEFAULT_PROVIDER_KEY, registry.defaultProvider().key(),
+        assertEquals(ProviderRegistry.DEFAULT_PROVIDER_KEY,
+                registry.byKey(ProviderRegistry.DEFAULT_PROVIDER_KEY).orElseThrow().key(),
                 "The default provider is resolvable.");
         assertTrue(repository.existsById(ProviderRegistry.DEFAULT_PROVIDER_KEY),
                 "The seeded default provider is persisted.");
@@ -75,6 +97,25 @@ class PersistentProviderRegistryTest {
     @Test
     void delete_isFalseForAnUnknownProvider() {
         assertFalse(registry.delete("reg-absent"), "Deleting an unregistered provider reports no-op.");
+    }
+
+    @Test
+    void save_stopsRequestsGoingToAProvidersOldTmForumBackend() {
+        registry.save(provider("reg-moved", "http://tm-forum-api.old.svc:8080"));
+        TMForumBackedRepository readingTheOldBackend =
+                clientFactory.forProvider(registry.byKey("reg-moved").orElseThrow());
+
+        // The stated purpose of the runtime registry: PUT /providers/{key} moves a provider onto a new
+        // backend. It answered 200 while every request kept going to the old url for the lifetime of
+        // the process, which made the runtime-mutable registry non-functional in its main use case.
+        registry.save(provider("reg-moved", "http://tm-forum-api.new.svc:8080"));
+
+        assertEquals("http://tm-forum-api.new.svc:8080",
+                registry.byKey("reg-moved").orElseThrow().tmforumBaseUrl(),
+                "the registry reports the new backend");
+        assertNotSame(readingTheOldBackend,
+                clientFactory.forProvider(registry.byKey("reg-moved").orElseThrow()),
+                "and requests are served by a client bound to it, not by the cached old one");
     }
 
     @Test

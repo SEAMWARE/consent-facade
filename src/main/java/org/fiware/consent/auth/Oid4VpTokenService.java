@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Seamless Middleware Technologies S.L and/or its affiliates
+ * and other contributors as indicated by the @author tags.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.fiware.consent.auth;
 
 import io.github.wistefan.oid4vp.OID4VPClient;
@@ -13,9 +29,7 @@ import jakarta.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import org.fiware.consent.auth.Oid4VpConfiguration.TokenTarget;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -23,16 +37,20 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Obtains OID4VP access tokens for the {@link Oid4VpConfiguration#getTokenTargets() configured
  * audiences}, so that components which must not implement OID4VP themselves - notably the Go
  * consent-plugin - can authenticate as this participant.
  *
- * <p>Tokens are cached per audience and refreshed shortly before they expire, and concurrent misses
- * for the same audience are coalesced onto a single presentation: a burst of requests costs one
- * exchange with the verifier, not one per request.
+ * <p>Tokens live in the shared {@link Oid4VpTokenCache}, which refreshes them shortly before they
+ * expire and coalesces concurrent misses for the same audience onto a single presentation: a burst of
+ * requests costs one exchange with the verifier, not one per request.
+ *
+ * <p>The exchange is bounded by {@link Oid4VpConfiguration#getRequestTimeout()}: a verifier that
+ * accepts the connection and then stalls must fail the request rather than pin the calling thread.
  *
  * <p>See ADR-0002 (reuse this client rather than implementing OID4VP in Go) and ADR-0003 (expose it
  * as a token endpoint rather than proxying consent traffic) in {@code doc/adr/}.
@@ -42,46 +60,23 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class Oid4VpTokenService {
 
-    /**
-     * How long before actual expiry a cached token is considered stale. Covers the clock skew
-     * between facade and verifier plus the time the caller still needs the token to be valid for.
-     */
-    private static final Duration REFRESH_SKEW = Duration.ofSeconds(60);
-
-    /**
-     * Divisor applied when a token lives no longer than {@link #REFRESH_SKEW}: such a token cannot
-     * be cached for {@code expiresIn - skew} (that is not positive), so half its lifetime is used.
-     */
-    private static final int SHORT_LIVED_TTL_DIVISOR = 2;
-
-    /** The token type to report when the verifier does not state one. */
-    private static final String DEFAULT_TOKEN_TYPE = "Bearer";
-
     private final OID4VPClient oid4VPClient;
     private final Map<String, TokenTarget> targetsByAudience;
-    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
-    private final Clock clock;
+    private final Oid4VpTokenCache tokenCache;
+    private final Duration requestTimeout;
 
     /**
      * Creates the service.
      *
      * @param oid4VPClient  the OID4VP client performing the presentation
      * @param configuration the OID4VP configuration carrying the permitted token targets
+     * @param tokenCache    the shared token cache
      */
-    public Oid4VpTokenService(OID4VPClient oid4VPClient, Oid4VpConfiguration configuration) {
-        this(oid4VPClient, configuration, Clock.systemUTC());
-    }
-
-    /**
-     * Creates the service with an explicit clock.
-     *
-     * @param oid4VPClient  the OID4VP client performing the presentation
-     * @param configuration the OID4VP configuration carrying the permitted token targets
-     * @param clock         the clock used for cache expiry
-     */
-    Oid4VpTokenService(OID4VPClient oid4VPClient, Oid4VpConfiguration configuration, Clock clock) {
+    public Oid4VpTokenService(OID4VPClient oid4VPClient, Oid4VpConfiguration configuration,
+                              Oid4VpTokenCache tokenCache) {
         this.oid4VPClient = oid4VPClient;
-        this.clock = clock;
+        this.tokenCache = tokenCache;
+        this.requestTimeout = configuration.getRequestTimeout();
         Map<String, TokenTarget> targets = new HashMap<>();
         Optional.ofNullable(configuration.getTokenTargets()).orElse(List.of())
                 .forEach(target -> targets.put(target.audience(), target));
@@ -94,7 +89,7 @@ public class Oid4VpTokenService {
      *
      * @param audience the configured audience to obtain a token for
      * @return the access token
-     * @throws UnknownAudienceException    if no target is configured for {@code audience}
+     * @throws UnknownAudienceException  if no target is configured for {@code audience}
      * @throws TokenAcquisitionException if the token could not be obtained
      */
     public AccessToken tokenFor(String audience) {
@@ -102,18 +97,8 @@ public class Oid4VpTokenService {
         if (target == null) {
             throw new UnknownAudienceException(audience);
         }
-        // Get-or-create the entry (brief), then hold only this audience's lock for the exchange, so a
-        // refresh for one audience never blocks hits or refreshes for another.
-        CacheEntry entry = cache.computeIfAbsent(audience, key -> new CacheEntry());
-        synchronized (entry) {
-            AccessToken cached = entry.valid(clock.instant());
-            if (cached != null) {
-                return cached;
-            }
-            AccessToken fresh = request(target);
-            entry.store(fresh, clock.instant());
-            return fresh;
-        }
+        return tokenCache.getOrLoad(
+                Oid4VpTokenCache.Key.forAudience(audience), requestTimeout, () -> request(target));
     }
 
     /** Performs the actual OID4VP exchange, translating library failures into {@link TokenAcquisitionException.Reason}s. */
@@ -124,14 +109,14 @@ public class Oid4VpTokenService {
         RequestParameters parameters = new RequestParameters(
                 target.url(), discoveryPathOf(target), target.clientId(), scopeOf(target));
         try {
-            TokenResponse response = oid4VPClient.getAccessToken(parameters).join();
-            if (response == null || response.getAccessToken() == null) {
-                throw new TokenAcquisitionException(TokenAcquisitionException.Reason.VERIFIER_UNREACHABLE,
-                        "The verifier for audience '%s' returned no access token.".formatted(target.audience()), null);
-            }
-            return new AccessToken(response.getAccessToken(),
-                    Optional.ofNullable(response.getTokenType()).orElse(DEFAULT_TOKEN_TYPE),
-                    response.getExpiresIn());
+            TokenResponse response = oid4VPClient.getAccessToken(parameters)
+                    .orTimeout(requestTimeout.toMillis(), TimeUnit.MILLISECONDS)
+                    .join();
+            return AccessToken.from(response)
+                    .orElseThrow(() -> new TokenAcquisitionException(
+                            TokenAcquisitionException.Reason.VERIFIER_UNREACHABLE,
+                            "The verifier for audience '%s' returned no access token.".formatted(target.audience()),
+                            null));
         } catch (CompletionException completionException) {
             throw translate(target, completionException.getCause() == null
                     ? completionException : completionException.getCause());
@@ -144,12 +129,12 @@ public class Oid4VpTokenService {
 
     /**
      * Maps a library failure onto a {@link TokenAcquisitionException.Reason}. The distinction that
-     * matters to callers is retryable (the verifier was not reachable) versus terminal (it refused
-     * the credential, or this facade is misconfigured).
+     * matters to callers is retryable (the verifier was not reachable, or did not answer in time)
+     * versus terminal (it refused the credential, or this facade is misconfigured).
      */
     private static TokenAcquisitionException translate(TokenTarget target, Throwable cause) {
         String message = "Could not obtain an access token for audience '%s'.".formatted(target.audience());
-        if (cause instanceof BadGatewayException) {
+        if (cause instanceof BadGatewayException || cause instanceof TimeoutException) {
             return new TokenAcquisitionException(
                     TokenAcquisitionException.Reason.VERIFIER_UNREACHABLE, message, cause);
         }
@@ -172,46 +157,5 @@ public class Oid4VpTokenService {
 
     private static Set<String> scopeOf(TokenTarget target) {
         return target.scope() == null ? Set.of() : new LinkedHashSet<>(target.scope());
-    }
-
-    /**
-     * An access token for one audience.
-     *
-     * @param value            the token to put in the {@code Authorization} header
-     * @param tokenType        the OAuth2 token type, normally {@code Bearer}
-     * @param expiresInSeconds the token's remaining lifetime as reported by the verifier
-     */
-    public record AccessToken(String value, String tokenType, long expiresInSeconds) {
-    }
-
-    /** Cache slot for one audience; guarded by its own monitor. */
-    private static final class CacheEntry {
-
-        private AccessToken token;
-        private Instant staleAt;
-
-        /** Returns the cached token when it is still fresh at {@code now}, else {@code null}. */
-        private AccessToken valid(Instant now) {
-            if (token == null || staleAt == null || !now.isBefore(staleAt)) {
-                return null;
-            }
-            long remaining = Duration.between(now, staleAt).toSeconds() + REFRESH_SKEW.toSeconds();
-            return new AccessToken(token.value(), token.tokenType(), remaining);
-        }
-
-        /** Caches {@code fresh}; a token without a usable lifetime is not cached at all. */
-        private void store(AccessToken fresh, Instant now) {
-            if (fresh.expiresInSeconds() <= 0) {
-                token = null;
-                staleAt = null;
-                return;
-            }
-            Duration lifetime = Duration.ofSeconds(fresh.expiresInSeconds());
-            Duration ttl = lifetime.compareTo(REFRESH_SKEW) > 0
-                    ? lifetime.minus(REFRESH_SKEW)
-                    : lifetime.dividedBy(SHORT_LIVED_TTL_DIVISOR);
-            token = fresh;
-            staleAt = now.plus(ttl);
-        }
     }
 }
