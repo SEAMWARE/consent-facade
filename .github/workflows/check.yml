@@ -16,14 +16,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - id: bump
-        uses: zwaldowski/match-label-action@v1
+        uses: zwaldowski/match-label-action@v6
         with:
           allowed: major,minor,patch
 
-      - uses: zwaldowski/semver-release-action@v2
+      - uses: zwaldowski/semver-release-action@v6
         with:
           dry_run: true
           bump: ${{ steps.bump.outputs.match }}
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: technote-space/workflow-conclusion-action@v3
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Comment PR
         if: env.WORKFLOW_CONCLUSION == 'failure'
