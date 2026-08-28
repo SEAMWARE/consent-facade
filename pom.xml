@@ -76,7 +76,7 @@
         <!-- oci -->
         <exec.mainClass>org.fiware.consent.Application</exec.mainClass>
         <image.registry>quay.io</image.registry>
-        <image.repository>wi_stefan</image.repository>
+        <image.repository>seamware</image.repository>
         <image.tag>${project.version}</image.tag>
 
         <!-- lazy dev -->

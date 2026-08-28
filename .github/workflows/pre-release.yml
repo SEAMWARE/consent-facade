@@ -11,7 +11,7 @@ on:
 
 env:
   REGISTRY: quay.io
-  REPOSITORY: wi_stefan
+  REPOSITORY: seamware
 
 jobs:
 
