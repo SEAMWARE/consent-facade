@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -43,11 +43,11 @@ jobs:
       - uses: actions/checkout@v7
 
       - id: bump
-        uses: zwaldowski/match-label-action@v1
+        uses: zwaldowski/match-label-action@v6
         with:
           allowed: major,minor,patch
 
-      - uses: zwaldowski/semver-release-action@v2
+      - uses: zwaldowski/semver-release-action@v6
         with:
           dry_run: true
           bump: ${{ steps.bump.outputs.match }}
@@ -64,7 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
