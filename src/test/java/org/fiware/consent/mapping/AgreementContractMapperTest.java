@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.fiware.consent.configuration.FacadeProperties;
 import org.fiware.consent.model.BilateralContractVO;
 import org.fiware.consent.model.OdrlPolicyVO;
+import org.fiware.consent.model.OdrlRuleVO;
 import org.fiware.consent.tmforum.TMForumBackedRepository.AgreementCharacteristic;
 import org.fiware.consent.tmforum.TMForumBackedRepository.EngagedPartyRole;
 import org.fiware.consent.tmforum.agreement.model.AgreementVO;
@@ -50,7 +51,7 @@ class AgreementContractMapperTest {
     private static final String PROVIDER_KEY = "provider-x";
     private static final String OFFERING_URL = SELF_URL + "/catalog/serviceofferings/" + PROVIDER_KEY + "~agreement-1";
 
-    private final AgreementContractMapper mapper = new AgreementContractMapper(new ObjectMapper(), catalogUrls());
+    private final AgreementContractMapper mapper = new AgreementContractMapper(new ObjectMapper(), catalogUrls(), new OdrlNormalizer());
 
     private static CatalogUrls catalogUrls() {
         FacadeProperties facadeProperties = new FacadeProperties();
@@ -110,6 +111,87 @@ class AgreementContractMapperTest {
         assertEquals(1, contract.getPurpose().size(), "One agreement offering maps to one purpose.");
         assertEquals(OFFERING_URL, contract.getPurpose().get(0).getPurpose(),
                 "purpose[].purpose points at the same offering URL, whose softwareResources carry the purpose.");
+    }
+
+    /**
+     * The JSON-LD ODRL the ODRL PAP requires - the form a provider actually declares on the product
+     * specification, so the one declaration serves both the PAP and consent.
+     */
+    private static Map<String, Object> papOdrlPolicy() {
+        return Map.of(
+                "@context", Map.of("odrl", "http://www.w3.org/ns/odrl/2/"),
+                "@id", "https://provider.org/policy/1",
+                "@type", "odrl:Policy",
+                "odrl:uid", "urn:policy:1",
+                // JSON-LD writes a single permission as an object, not an array
+                "odrl:permission", Map.of(
+                        "odrl:assigner", Map.of("@id", "did:provider"),
+                        "odrl:assignee", Map.of("@id", "did:consumer"),
+                        "odrl:target", Map.of("@id", "urn:asset:1"),
+                        "odrl:action", Map.of("@id", "odrl:use")));
+    }
+
+    private static AgreementVO papPolicyAgreement() {
+        return new AgreementVO()
+                .id("agreement-1")
+                .initialDate(INITIAL_DATE)
+                .characteristic(List.of(
+                        characteristic(AgreementCharacteristic.PROVIDER_ID, "did:provider"),
+                        characteristic(AgreementCharacteristic.CONSUMER_ID, "did:consumer"),
+                        characteristic(AgreementCharacteristic.POLICY, papOdrlPolicy()),
+                        characteristic(AgreementCharacteristic.SIGNING_DATE, SIGNING_EPOCH_SECONDS)));
+    }
+
+    @Test
+    void toBilateralContract_convertsThePapsJsonLdOdrlPolicy() {
+        // the provider declares ODRL once, in the form the PAP requires; the facade must read it
+        BilateralContractVO contract = mapper.toBilateralContract(papPolicyAgreement(), PROVIDER_KEY);
+
+        assertNotNull(contract.getPolicy(), "The JSON-LD policy must be understood, not silently dropped.");
+        OdrlPolicyVO policy = contract.getPolicy().get(0);
+        assertEquals("urn:policy:1", policy.getUid(), "odrl:uid binds to uid.");
+        assertEquals(1, policy.getPermission().size(),
+                "A single permission written as an object becomes a one-element array.");
+        OdrlRuleVO rule = policy.getPermission().get(0);
+        assertEquals("urn:asset:1", rule.getAssetTarget(),
+                "odrl:target {@id} collapses to the asset URI, which is what a data-plane enforcer matches.");
+        assertEquals(OFFERING_URL, rule.getTarget(), "The target is still retargeted to the offering URL.");
+        assertEquals("odrl:use", rule.getAction(), "odrl:action {@id} collapses to the action.");
+        assertEquals("did:provider", rule.getAssigner());
+        assertEquals("did:consumer", rule.getAssignee());
+        assertNotNull(policy.getProhibition(), "prohibition is always an array for the consent-manager.");
+    }
+
+    @Test
+    void toBilateralContract_collapsesAnAssetCollectionToItsSource() {
+        // an AssetCollection has no single URI; its source is the closest thing the model can carry,
+        // and the refinements that actually narrow it are lost
+        Map<String, Object> collectionPolicy = Map.of(
+                "odrl:uid", "urn:policy:collection",
+                "odrl:permission", Map.of(
+                        "odrl:target", Map.of(
+                                "@type", "odrl:AssetCollection",
+                                "odrl:source", "urn:asset",
+                                "odrl:refinement", List.of(Map.of(
+                                        "@type", "odrl:Constraint",
+                                        "odrl:leftOperand", "ngsi-ld:entityType",
+                                        "odrl:operator", Map.of("@id", "odrl:eq"),
+                                        "odrl:rightOperand", "PersonalProfile"))),
+                        "odrl:action", Map.of("@id", "odrl:read")));
+        AgreementVO agreement = new AgreementVO()
+                .id("agreement-2")
+                .characteristic(List.of(
+                        characteristic(AgreementCharacteristic.PROVIDER_ID, "did:provider"),
+                        characteristic(AgreementCharacteristic.CONSUMER_ID, "did:consumer"),
+                        characteristic(AgreementCharacteristic.POLICY, collectionPolicy),
+                        characteristic(AgreementCharacteristic.SIGNING_DATE, SIGNING_EPOCH_SECONDS)));
+
+        OdrlRuleVO rule = mapper.toBilateralContract(agreement, PROVIDER_KEY)
+                .getPolicy().get(0).getPermission().get(0);
+
+        assertEquals("urn:asset", rule.getAssetTarget(),
+                "The collection collapses to its source - a plain-URI enforcer will not match a "
+                        + "concrete object against it, which is a limit of the contract model.");
     }
 
     @Test
