@@ -92,6 +92,7 @@ public class AgreementContractMapper {
 
     private final ObjectMapper objectMapper;
     private final CatalogUrls catalogUrls;
+    private final OdrlNormalizer odrlNormalizer;
 
     /**
      * Creates the mapper.
@@ -99,11 +100,15 @@ public class AgreementContractMapper {
      * @param objectMapper the application Jackson mapper; a lenient copy is used to convert the
      *                      opaque ODRL policy characteristic into an {@link OdrlPolicyVO}
      * @param catalogUrls  builds the {@code serviceOffering} URL the contract points back at
+     * @param odrlNormalizer brings the policy characteristic into the shape {@link OdrlPolicyVO}
+     *                       binds to, whichever ODRL form the provider declared
      */
-    public AgreementContractMapper(ObjectMapper objectMapper, CatalogUrls catalogUrls) {
+    public AgreementContractMapper(ObjectMapper objectMapper, CatalogUrls catalogUrls,
+                                   OdrlNormalizer odrlNormalizer) {
         this.objectMapper = objectMapper.copy()
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.catalogUrls = catalogUrls;
+        this.odrlNormalizer = odrlNormalizer;
     }
 
     /**
@@ -269,9 +274,17 @@ public class AgreementContractMapper {
         }
     }
 
+    /**
+     * Converts the raw {@code policy} characteristic into an ODRL policy.
+     *
+     * <p>The value is normalized first, because the same declaration serves the ODRL PAP, which
+     * requires the JSON-LD form ({@code odrl:permission}, {@code odrl:target: {"@id": ...}}). Without
+     * normalizing, those keys bind to nothing: the conversion succeeds, the policy comes back with no
+     * rules, and the contract silently carries no target - see {@link OdrlNormalizer}.
+     */
     private Optional<OdrlPolicyVO> toPolicy(Object rawPolicy) {
         try {
-            return Optional.of(objectMapper.convertValue(rawPolicy, OdrlPolicyVO.class));
+            return Optional.of(objectMapper.convertValue(odrlNormalizer.normalize(rawPolicy), OdrlPolicyVO.class));
         } catch (IllegalArgumentException e) {
             log.debug("Could not convert the agreement policy characteristic into an ODRL policy.", e);
             return Optional.empty();
