@@ -90,7 +90,7 @@
 
         <!-- test -->
         <version.org.awaitility>4.2.0</version.org.awaitility>
-        <version.io.github.wistefan.oid4vp-client-lib>0.0.5</version.io.github.wistefan.oid4vp-client-lib>
+        <version.io.github.wistefan.oid4vp-client-lib>0.0.6</version.io.github.wistefan.oid4vp-client-lib>
         <version.com.nimbusds.nimbus-jose-jwt>10.9.1</version.com.nimbusds.nimbus-jose-jwt>
         <version.org.bouncycastle>1.81</version.org.bouncycastle>
 
