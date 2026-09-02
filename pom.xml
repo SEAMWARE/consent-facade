@@ -80,7 +80,7 @@
         <image.tag>${project.version}</image.tag>
 
         <!-- lazy dev -->
-        <version.org.projectlombok>1.18.36</version.org.projectlombok>
+        <version.org.projectlombok>1.18.46</version.org.projectlombok>
 
         <!-- logging -->
 
