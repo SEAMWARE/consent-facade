@@ -71,7 +71,7 @@ jobs:
 
       # docker/login-action rather than `docker login -p`, which puts the password on the command line
       - name: Login to registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
