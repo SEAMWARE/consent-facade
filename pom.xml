@@ -80,7 +80,7 @@
         <image.tag>${project.version}</image.tag>
 
         <!-- lazy dev -->
-        <version.org.projectlombok>1.18.46</version.org.projectlombok>
+        <version.org.projectlombok>1.18.48</version.org.projectlombok>
 
         <!-- logging -->
 
@@ -96,7 +96,7 @@
 
         <!-- build -->
         <version.org.codehaus.mojo.build-helper-maven-plugin>3.6.1</version.org.codehaus.mojo.build-helper-maven-plugin>
-        <version.com.diffplug.spotless>3.10.0</version.com.diffplug.spotless>
+        <version.com.diffplug.spotless>3.10.2</version.com.diffplug.spotless>
         <version.org.jacoco.maven-plugin>0.8.15</version.org.jacoco.maven-plugin>
         <version.org.cyclonedx.maven-plugin>2.9.3</version.org.cyclonedx.maven-plugin>
         <jacoco.minimum.line.coverage>0.88</jacoco.minimum.line.coverage>
