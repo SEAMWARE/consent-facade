@@ -91,8 +91,8 @@
         <!-- test -->
         <version.org.awaitility>4.3.0</version.org.awaitility>
         <version.io.github.wistefan.oid4vp-client-lib>0.0.6</version.io.github.wistefan.oid4vp-client-lib>
-        <version.com.nimbusds.nimbus-jose-jwt>10.9.1</version.com.nimbusds.nimbus-jose-jwt>
-        <version.org.bouncycastle>1.85</version.org.bouncycastle>
+        <version.com.nimbusds.nimbus-jose-jwt>10.10</version.com.nimbusds.nimbus-jose-jwt>
+        <version.org.bouncycastle>1.86</version.org.bouncycastle>
 
         <!-- build -->
         <version.org.codehaus.mojo.build-helper-maven-plugin>3.6.2</version.org.codehaus.mojo.build-helper-maven-plugin>
