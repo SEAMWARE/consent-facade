@@ -9,6 +9,11 @@ env:
   REGISTRY: quay.io
   REPOSITORY: seamware
 
+# releases one after the other, each reading the tags left by the previous one
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   # A push to main must not publish an image that no test ran against.
   test:
@@ -65,19 +70,15 @@ jobs:
           mvn versions:set -DnewVersion=${{ needs.generate-version.outputs.version }}
           mvn clean deploy -Poci -Dimage.tag=${{ needs.generate-version.outputs.version }} -Dimage.registry="${{ env.REGISTRY }}" -Dimage.repository="${{ env.REPOSITORY }}"
 
+  # Publishes the release, see
+  # https://github.com/FIWARE/github-workflows
   git-release:
     needs: [ "generate-version", "build-and-push" ]
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v7
-
-      # Pinned to a SHA: this third-party action holds the GITHUB_TOKEN (v1.2.1).
-      - uses: "marvinpinto/action-automatic-releases@919008cf3f741b179569b7a6fb4d8860689ab7f0"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: ${{ needs.generate-version.outputs.version }}
-          prerelease: false
-          title: ${{ needs.generate-version.outputs.version }}
-          files: |
-            LICENSE
+    uses: FIWARE/github-workflows/.github/workflows/github-release.yml@v1
+    permissions:
+      contents: write
+    with:
+      version: ${{ needs.generate-version.outputs.version }}
+      prerelease: false
+      files: |
+        LICENSE
