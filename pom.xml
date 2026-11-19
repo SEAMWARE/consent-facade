@@ -687,6 +687,20 @@
                                 </tags>
                             </to>
                             <container>
+                                <!--
+                                    Java4Shell (CVE-2026-114938): the AVX-512 VBMI Base64 intrinsic
+                                    in OpenJDK >= 17.0.6 miscalculates the output buffer size for
+                                    input with unexpected padding and writes past the buffer. The
+                                    facade decodes caller-supplied base64 from the /for/{participantId}
+                                    and /verify path variables, so the vulnerable decoder is reachable
+                                    before authentication. The base image above still ships OpenJDK
+                                    21.0.5 and Red Hat has not published a patched ubi8/openjdk-21 yet,
+                                    so disable the intrinsic, as BSI and Red Hat (RHSB-2026-018) advise.
+                                    Remove this flag once the base image ships OpenJDK >= 21.0.13.1.
+                                -->
+                                <jvmFlags>
+                                    <jvmFlag>-XX:-UseBASE64Intrinsics</jvmFlag>
+                                </jvmFlags>
                                 <labels>
                                     <org.opencontainers.image.description>${project.description}
                                     </org.opencontainers.image.description>
